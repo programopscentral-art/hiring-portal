@@ -1,0 +1,634 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Hiring Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+  :root{
+    --bg:#0f1419; --panel:#161c25; --panel-2:#1b2330; --border:#283142;
+    --text:#e6edf3; --muted:#8b95a7; --accent:#4f8cff; --good:#22c55e;
+    --warn:#f59e0b; --bad:#ef4444; --info:#06b6d4; --pill:#252e3f;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+  header{padding:16px 28px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+  header h1{margin:0;font-size:20px;font-weight:600;letter-spacing:.2px}
+  header .sub{color:var(--muted);font-size:12px;margin-top:2px;display:flex;align-items:center;gap:8px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
+  .dot.ok{background:var(--good);box-shadow:0 0 8px rgba(34,197,94,.4)}
+  .dot.err{background:var(--bad)}
+  .dot.sync{background:var(--info);animation:pulse 1.2s infinite}
+  @keyframes pulse{0%,100%{opacity:.4}50%{opacity:1}}
+  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .filters{display:flex;gap:8px;flex-wrap:wrap;padding:14px 28px;border-bottom:1px solid var(--border);background:var(--panel)}
+  select,input,button,label.btn{background:var(--panel);color:var(--text);border:1px solid var(--border);padding:7px 12px;border-radius:8px;font:inherit;cursor:pointer}
+  input[type=text],input[type=url]{cursor:text;min-width:340px}
+  button:hover,label.btn:hover{background:var(--panel-2);border-color:var(--accent)}
+  .btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn-primary:hover{background:#3a78ee}
+  .btn-danger{color:var(--bad);border-color:#3a2128}
+  .btn-danger:hover{background:rgba(239,68,68,.08)}
+  input[type=file]{display:none}
+  main{padding:20px 28px 60px;max-width:1500px;margin:0 auto}
+  .grid{display:grid;gap:16px}
+  .kpis{grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:20px}
+  .kpi{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .kpi .label{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+  .kpi .value{font-size:28px;font-weight:600;margin-top:6px}
+  .kpi .delta{font-size:12px;color:var(--muted);margin-top:4px}
+  .kpi.good .value{color:var(--good)} .kpi.warn .value{color:var(--warn)}
+  .kpi.bad .value{color:var(--bad)} .kpi.info .value{color:var(--info)}
+  .row{display:grid;gap:16px;grid-template-columns:1fr 1fr;margin-bottom:16px}
+  .row.three{grid-template-columns:2fr 1fr 1fr}
+  @media(max-width:1100px){.row,.row.three{grid-template-columns:1fr}}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .card h2{margin:0 0 12px;font-size:14px;font-weight:600;color:var(--text);display:flex;justify-content:space-between;align-items:center}
+  .card h2 .count{color:var(--muted);font-weight:400;font-size:12px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+  th{color:var(--muted);font-weight:500;text-transform:uppercase;font-size:11px;letter-spacing:.5px;position:sticky;top:0;background:var(--panel)}
+  tr:last-child td{border-bottom:none}
+  tr:hover td{background:var(--panel-2)}
+  .pill{display:inline-block;padding:2px 8px;border-radius:99px;background:var(--pill);font-size:11px;color:var(--muted)}
+  .pill.good{background:rgba(34,197,94,.12);color:var(--good)}
+  .pill.warn{background:rgba(245,158,11,.12);color:var(--warn)}
+  .pill.bad{background:rgba(239,68,68,.12);color:var(--bad)}
+  .pill.info{background:rgba(6,182,212,.12);color:var(--info)}
+  .bar{height:8px;background:var(--panel-2);border-radius:99px;overflow:hidden;min-width:80px}
+  .bar > span{display:block;height:100%;background:linear-gradient(90deg,var(--accent),#22c55e)}
+  .scroll{max-height:380px;overflow:auto}
+  .loc-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+  .loc{background:var(--panel-2);border:1px solid var(--border);border-radius:10px;padding:12px}
+  .loc .name{font-weight:600;margin-bottom:8px;display:flex;justify-content:space-between}
+  .loc .stat{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin:3px 0}
+  .loc .stat b{color:var(--text);font-weight:500}
+  .src-row{display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:13px}
+  .src-row .lbl{color:var(--muted);min-width:90px}
+  .src-row .bar{flex:1;margin:0 10px}
+  .empty-state{padding:32px;background:var(--panel);border:1px dashed var(--border);border-radius:12px;max-width:780px;margin:0 auto}
+  .empty-state h2{font-size:18px;margin:0 0 6px}
+  .empty-state p{color:var(--muted);line-height:1.7;margin:0 0 16px}
+  .empty-state ol{color:var(--muted);line-height:1.9;padding-left:20px;margin:0 0 16px}
+  .empty-state ol b{color:var(--text)}
+  .connect-form{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+  .divider{display:flex;align-items:center;gap:12px;color:var(--muted);font-size:12px;margin:18px 0;text-transform:uppercase;letter-spacing:1px}
+  .divider:before,.divider:after{content:"";flex:1;height:1px;background:var(--border)}
+  .empty{color:var(--muted);text-align:center;padding:20px;font-size:13px}
+  .toast{position:fixed;bottom:24px;right:24px;background:var(--panel);border:1px solid var(--border);padding:12px 16px;border-radius:8px;max-width:380px;box-shadow:0 8px 24px rgba(0,0,0,.4);transform:translateY(100px);opacity:0;transition:all .25s;z-index:99}
+  .toast.show{transform:translateY(0);opacity:1}
+  .toast.error{border-color:var(--bad)}
+  .toast.success{border-color:var(--good)}
+  code{background:var(--bg);padding:1px 6px;border-radius:4px;font-size:12px}
+  .help{margin-top:30px;padding:16px;background:var(--panel-2);border:1px dashed var(--border);border-radius:10px;color:var(--muted);font-size:12px;line-height:1.7}
+  .help b{color:var(--text)}
+  .source-bar{display:flex;align-items:center;gap:12px;padding:10px 28px;background:var(--panel-2);border-bottom:1px solid var(--border);font-size:12px;color:var(--muted);flex-wrap:wrap}
+  .source-bar .src-url{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Hiring Dashboard</h1>
+    <div class="sub" id="lastUpdated"><span class="dot" id="syncDot"></span><span id="syncText">No data loaded yet</span></div>
+  </div>
+  <div class="toolbar">
+    <button id="btnRefresh" style="display:none">↻ Refresh now</button>
+    <button id="btnDownloadCurrent" style="display:none">⬇ Download current</button>
+    <button id="btnDownloadTemplate">⬇ Download template</button>
+    <button id="btnDisconnect" class="btn-danger" style="display:none">Disconnect</button>
+  </div>
+</header>
+
+<div class="source-bar" id="sourceBar" style="display:none">
+  <span>Source:</span>
+  <span class="src-url" id="srcUrl"></span>
+  <span>•</span>
+  <label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:var(--muted)">
+    <input type="checkbox" id="autoRefresh" style="cursor:pointer" /> Auto-refresh every
+    <select id="refreshInterval" style="padding:2px 6px">
+      <option value="30">30 s</option>
+      <option value="60">1 min</option>
+      <option value="120" selected>2 min</option>
+      <option value="300">5 min</option>
+      <option value="600">10 min</option>
+    </select>
+  </label>
+</div>
+
+<div class="filters" id="filtersBar" style="display:none">
+  <select id="filterLocation"><option value="">All locations</option></select>
+  <select id="filterRole"><option value="">All roles</option></select>
+  <select id="filterStatus">
+    <option value="">All statuses</option>
+    <option value="Open">Open</option>
+    <option value="In Progress">In Progress</option>
+    <option value="Filled">Filled</option>
+    <option value="On Hold">On Hold</option>
+  </select>
+</div>
+
+<main>
+  <div id="emptyState" class="empty-state">
+    <h2>Connect a Google Sheet</h2>
+    <p>Keep your hiring data in a Google Sheet — this dashboard fetches it on a schedule and re-renders automatically when you update the sheet.</p>
+    <div class="connect-form">
+      <input type="url" id="sheetUrl" placeholder="Paste Google Sheet URL or Apps Script /exec URL" />
+      <button class="btn-primary" id="btnConnect">Connect</button>
+      <button id="btnDownloadTemplate2">⬇ Download template</button>
+    </div>
+
+    <details style="margin-top:18px;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:12px 14px">
+      <summary style="cursor:pointer;color:var(--text);font-weight:500">Setup option 1 — Public sheet (simplest, ~5-min update lag)</summary>
+      <ol style="margin-top:10px">
+        <li>Click <b>Download template</b> above and import it into a new Google Sheet (<code>File → Import → Upload → Replace spreadsheet</code>).</li>
+        <li>In Google Sheets: <b>File → Share → Publish to web → Comma-separated values (.csv) → Publish</b>. Copy the URL.</li>
+        <li>Paste the URL above and click Connect. <i>Or</i> share the sheet as "Anyone with the link can view" and paste the regular share URL — that's near-real-time.</li>
+      </ol>
+    </details>
+
+    <details open style="margin-top:10px;background:var(--panel-2);border:1px solid var(--border);border-radius:8px;padding:12px 14px">
+      <summary style="cursor:pointer;color:var(--text);font-weight:500">Setup option 2 — Private sheet via Apps Script proxy (recommended)</summary>
+      <p style="margin:10px 0 8px">Keeps your sheet private. Real-time updates. The <code>apps-script.gs</code> file in this folder has the proxy code with full setup steps.</p>
+      <ol>
+        <li>Open your hiring Google Sheet → <b>Extensions → Apps Script</b>.</li>
+        <li>Delete the placeholder code, paste the contents of <code>apps-script.gs</code>, and save.</li>
+        <li><b>Deploy → New deployment</b> → Type: <b>Web app</b> → Execute as: <b>Me</b> → Who has access: <b>Anyone</b> → Deploy.</li>
+        <li>Authorize when prompted (Advanced → Go to script → Allow).</li>
+        <li>Copy the <b>Web app URL</b> (ends with <code>/exec</code>) and paste it above. Click Connect.</li>
+      </ol>
+      <p style="margin:8px 0 0;font-size:12px"><b style="color:var(--text)">Tip:</b> To pull from a specific tab instead of the first one, append <code>?sheet=TabName</code> to the /exec URL.</p>
+    </details>
+
+    <div class="divider">or, no auto-sync</div>
+    <div class="connect-form">
+      <label class="btn" for="fileInput">⬆ Upload CSV file (one-time)</label>
+      <input type="file" id="fileInput" accept=".csv,text/csv" />
+      <span style="color:var(--muted);font-size:12px;align-self:center">Just loads the file you choose. No live updates.</span>
+    </div>
+  </div>
+
+  <div id="dashboard" style="display:none">
+    <section class="grid kpis" id="kpis"></section>
+
+    <div class="row three">
+      <div class="card">
+        <h2>Locations <span class="count" id="locCount"></span></h2>
+        <div class="loc-grid" id="locations"></div>
+      </div>
+      <div class="card">
+        <h2>Source breakdown <span class="count">(filled hires)</span></h2>
+        <div id="sources"></div>
+      </div>
+      <div class="card">
+        <h2>Pipeline by stage</h2>
+        <div id="stages"></div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px">
+      <h2>Requirements <span class="count" id="reqCount"></span></h2>
+      <div class="scroll">
+        <table id="reqTable">
+          <thead><tr>
+            <th>ID</th><th>Location</th><th>Role</th><th>Positions</th>
+            <th>Filled</th><th>Pending</th><th>In Queue</th>
+            <th>Progress</th><th>Status</th><th>Opened</th><th>Target Close</th><th>Days Open</th>
+          </tr></thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="card">
+        <h2>Filled — candidate details <span class="count" id="filledCount"></span></h2>
+        <div class="scroll">
+          <table id="filledTable">
+            <thead><tr>
+              <th>Name</th><th>Role</th><th>Location</th><th>Joined</th><th>Source</th><th>Recruiter</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="card">
+        <h2>In queue / pipeline <span class="count" id="queueCount"></span></h2>
+        <div class="scroll">
+          <table id="queueTable">
+            <thead><tr>
+              <th>Name</th><th>Role</th><th>Location</th><th>Stage</th><th>Source</th><th>Added</th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div class="help">
+      <b>CSV format:</b> single sheet with a <code>Type</code> column. Allowed types: <code>Requirement</code>, <code>Filled</code>, <code>Pipeline</code>.<br>
+      <b>Columns:</b> <code>Type, ID, Location, Role, Positions, Filled, Status, OpenedDate, TargetCloseDate, CandidateName, JoinDate, Source, Recruiter, Stage, AddedDate, RequirementID</code><br>
+      <b>Statuses:</b> Open / In Progress / Filled / On Hold &nbsp;•&nbsp; <b>Stages:</b> Sourced / Screened / Interview / Offer / On Hold<br>
+      Dates use <code>YYYY-MM-DD</code>. <code>RequirementID</code> on candidate rows links to a requirement (used to compute "in queue" per req).<br>
+      <b>Heads up:</b> Google's published-to-web CSV is cached ~5 min — edits show up after that delay even if auto-refresh is faster. For real-time pulls from a private sheet, use the Apps Script proxy (see <code>apps-script.gs</code> in this folder).
+    </div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  const $ = s => document.querySelector(s);
+  const STORAGE_KEY = 'hiring-dashboard-v2';
+  const COLS = ['Type','ID','Location','Role','Positions','Filled','Status','OpenedDate','TargetCloseDate','CandidateName','JoinDate','Source','Recruiter','Stage','AddedDate','RequirementID'];
+
+  const TEMPLATE_CSV = COLS.join(',') + '\r\n' + [
+    ['Requirement','R-101','Bangalore','Backend Engineer','4','2','In Progress','2026-02-10','2026-05-15','','','','','','',''],
+    ['Requirement','R-102','Hyderabad','Data Scientist','2','0','Open','2026-04-15','2026-06-30','','','','','','',''],
+    ['Requirement','R-103','Remote','DevOps Engineer','1','1','Filled','2026-02-20','2026-04-30','','','','','','',''],
+    ['Filled','','Bangalore','Backend Engineer','','','','','','Aarav Shah','2026-03-15','Referral','Priya M.','','','R-101'],
+    ['Filled','','Bangalore','Backend Engineer','','','','','','Nisha Reddy','2026-04-05','LinkedIn','Priya M.','','','R-101'],
+    ['Filled','','Remote','DevOps Engineer','','','','','','Rohit Gupta','2026-04-12','LinkedIn','Sunil D.','','','R-103'],
+    ['Pipeline','','Bangalore','Backend Engineer','','','','','','Riya Verma','','LinkedIn','','Interview','2026-04-10','R-101'],
+    ['Pipeline','','Hyderabad','Data Scientist','','','','','','Tanvi Desai','','Naukri','','Screened','2026-04-22','R-102'],
+  ].map(toCSVRow).join('\r\n') + '\r\n';
+
+  let requirements = [], filledCandidates = [], pipelineCandidates = [];
+  let sheetUrl = null, lastSyncedAt = null, autoRefreshOn = true, refreshSec = 120;
+  let refreshTimer = null, syncing = false;
+
+  // ---------- CSV utilities ----------
+  function parseCSV(text){
+    const rows = []; let cur = '', row = [], inQ = false;
+    for (let i = 0; i < text.length; i++){
+      const c = text[i];
+      if (inQ){
+        if (c === '"'){ if (text[i+1] === '"'){ cur += '"'; i++; } else inQ = false; }
+        else cur += c;
+      } else {
+        if (c === '"') inQ = true;
+        else if (c === ','){ row.push(cur); cur = ''; }
+        else if (c === '\n' || c === '\r'){
+          if (c === '\r' && text[i+1] === '\n') i++;
+          row.push(cur); rows.push(row); row = []; cur = '';
+        } else cur += c;
+      }
+    }
+    if (cur !== '' || row.length){ row.push(cur); rows.push(row); }
+    return rows.filter(r => r.some(c => (c||'').trim() !== ''));
+  }
+  function toCSVRow(arr){
+    return arr.map(v => { v = v == null ? '' : String(v); return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g,'""') + '"' : v; }).join(',');
+  }
+  function toCSV(rows){ return rows.map(toCSVRow).join('\r\n') + '\r\n'; }
+
+  function rowsToData(rows){
+    if (rows.length < 1) return {ok:false, error:'CSV is empty.'};
+    const header = rows[0].map(c => (c||'').trim());
+    const idx = name => header.indexOf(name);
+    if (idx('Type') === -1) return {ok:false, error:'Missing required "Type" column. Make sure your sheet starts with a header row matching the template.'};
+    const get = (row, name) => { const i = idx(name); return i >= 0 ? ((row[i]||'').trim()) : ''; };
+    const reqs = [], filled = [], queue = []; let bad = 0;
+    for (let i = 1; i < rows.length; i++){
+      const r = rows[i];
+      const type = get(r,'Type').toLowerCase();
+      if (!type) continue;
+      if (type === 'requirement'){
+        reqs.push({ id: get(r,'ID'), location: get(r,'Location'), role: get(r,'Role'),
+          positions: parseInt(get(r,'Positions'))||0, filled: parseInt(get(r,'Filled'))||0,
+          status: get(r,'Status') || 'Open',
+          openedDate: get(r,'OpenedDate'), targetCloseDate: get(r,'TargetCloseDate') });
+      } else if (type === 'filled'){
+        filled.push({ name: get(r,'CandidateName'), role: get(r,'Role'), location: get(r,'Location'),
+          joinDate: get(r,'JoinDate'), source: get(r,'Source') || 'Unknown',
+          recruiter: get(r,'Recruiter'), requirementId: get(r,'RequirementID') });
+      } else if (type === 'pipeline'){
+        queue.push({ name: get(r,'CandidateName'), role: get(r,'Role'), location: get(r,'Location'),
+          stage: get(r,'Stage') || 'Sourced', source: get(r,'Source') || 'Unknown',
+          addedDate: get(r,'AddedDate'), requirementId: get(r,'RequirementID') });
+      } else { bad++; }
+    }
+    return {ok:true, requirements:reqs, filledCandidates:filled, pipelineCandidates:queue, badRows:bad};
+  }
+
+  function dataToRows(){
+    const rows = [COLS.slice()];
+    requirements.forEach(r => rows.push(['Requirement', r.id, r.location, r.role, r.positions, r.filled, r.status, r.openedDate, r.targetCloseDate, '','','','','','','']));
+    filledCandidates.forEach(c => rows.push(['Filled','', c.location, c.role, '','','','','', c.name, c.joinDate, c.source, c.recruiter,'','', c.requirementId]));
+    pipelineCandidates.forEach(c => rows.push(['Pipeline','', c.location, c.role, '','','','','', c.name,'', c.source,'', c.stage, c.addedDate, c.requirementId]));
+    return rows;
+  }
+
+  // ---------- Google Sheets URL handling ----------
+  function buildFetchUrl(input){
+    const t = (input || '').trim();
+    if (!t) return null;
+    // Apps Script web app deployment (works for private sheets)
+    if (/script\.google\.com\/macros\/s\//.test(t)) return t;
+    // Already a published-to-web CSV URL
+    if (/\/pub(?:\?|\/)/.test(t) && /(?:output|format)=csv/.test(t)) return t;
+    // If a /pub URL without csv param, append it
+    if (/\/pub(?:\?|\/)/.test(t)){ return t.includes('?') ? t + '&output=csv' : t + '?output=csv'; }
+    // Extract sheet ID from a regular share URL
+    const m = t.match(/\/d\/([a-zA-Z0-9-_]+)/) || t.match(/^([a-zA-Z0-9-_]{30,})$/);
+    if (!m) return null;
+    const id = m[1];
+    const gidMatch = t.match(/[#&?]gid=(\d+)/);
+    const gid = gidMatch ? gidMatch[1] : null;
+    let url = `https://docs.google.com/spreadsheets/d/${id}/gviz/tq?tqx=out:csv`;
+    if (gid) url += `&gid=${gid}`;
+    return url;
+  }
+
+  async function fetchSheet(){
+    if (!sheetUrl){ return; }
+    const url = buildFetchUrl(sheetUrl);
+    if (!url){ setSync('err', 'Could not parse the sheet URL.'); return; }
+    setSync('sync', 'Fetching from Google Sheets…');
+    syncing = true;
+    try {
+      const res = await fetch(url + (url.includes('?') ? '&' : '?') + '_t=' + Date.now(), {cache:'no-store'});
+      if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.statusText);
+      const text = await res.text();
+      if (text.trim().startsWith('<')) throw new Error('Got HTML instead of CSV. Make sure the sheet is published-to-web or shared as "anyone with the link can view".');
+      const rows = parseCSV(text);
+      const result = rowsToData(rows);
+      if (!result.ok) throw new Error(result.error);
+      const total = result.requirements.length + result.filledCandidates.length + result.pipelineCandidates.length;
+      if (total === 0) throw new Error('Fetched the sheet but found no data rows. Check the Type column.');
+      requirements = result.requirements;
+      filledCandidates = result.filledCandidates;
+      pipelineCandidates = result.pipelineCandidates;
+      lastSyncedAt = new Date().toISOString();
+      save();
+      populateFilters();
+      render();
+      setSync('ok');
+    } catch (err){
+      setSync('err', 'Sync failed: ' + err.message);
+    } finally { syncing = false; }
+  }
+
+  // ---------- Sync status ----------
+  function setSync(state, msg){
+    const dot = $('#syncDot'); dot.className = 'dot ' + (state==='ok'?'ok':state==='err'?'err':state==='sync'?'sync':'');
+    let txt;
+    if (state === 'sync') txt = msg || 'Syncing…';
+    else if (state === 'err') txt = msg || 'Sync error';
+    else if (state === 'ok'){
+      const ago = lastSyncedAt ? timeAgo(new Date(lastSyncedAt)) : 'just now';
+      txt = `Synced ${ago} • ${requirements.length} req • ${filledCandidates.length} filled • ${pipelineCandidates.length} pipeline`;
+    } else txt = 'No data loaded yet';
+    $('#syncText').textContent = txt;
+  }
+  function timeAgo(d){
+    const s = Math.round((Date.now()-d)/1000);
+    if (s < 60) return s + 's ago';
+    if (s < 3600) return Math.round(s/60) + ' min ago';
+    if (s < 86400) return Math.round(s/3600) + ' h ago';
+    return d.toLocaleDateString();
+  }
+  setInterval(() => { if (lastSyncedAt && !syncing && $('#syncDot').classList.contains('ok')) setSync('ok'); }, 30000);
+
+  // ---------- Persistence ----------
+  function save(){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      requirements, filledCandidates, pipelineCandidates,
+      sheetUrl, lastSyncedAt, autoRefreshOn, refreshSec
+    }));
+  }
+  function load(){
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    try {
+      const d = JSON.parse(raw);
+      requirements = d.requirements || [];
+      filledCandidates = d.filledCandidates || [];
+      pipelineCandidates = d.pipelineCandidates || [];
+      sheetUrl = d.sheetUrl || null;
+      lastSyncedAt = d.lastSyncedAt || null;
+      autoRefreshOn = d.autoRefreshOn !== false;
+      refreshSec = d.refreshSec || 120;
+      return true;
+    } catch { return false; }
+  }
+
+  // ---------- Auto-refresh ----------
+  function startAutoRefresh(){
+    stopAutoRefresh();
+    if (autoRefreshOn && sheetUrl){
+      refreshTimer = setInterval(fetchSheet, refreshSec * 1000);
+    }
+  }
+  function stopAutoRefresh(){ if (refreshTimer){ clearInterval(refreshTimer); refreshTimer = null; } }
+
+  // ---------- Local file upload (fallback) ----------
+  function handleFile(file){
+    const reader = new FileReader();
+    reader.onload = e => {
+      const result = rowsToData(parseCSV(e.target.result));
+      if (!result.ok){ toast(result.error, 'error'); return; }
+      const total = result.requirements.length + result.filledCandidates.length + result.pipelineCandidates.length;
+      if (total === 0){ toast('No data rows found in the CSV.', 'error'); return; }
+      requirements = result.requirements;
+      filledCandidates = result.filledCandidates;
+      pipelineCandidates = result.pipelineCandidates;
+      lastSyncedAt = new Date().toISOString();
+      sheetUrl = null;
+      save(); populateFilters(); render();
+      setSync('ok');
+      toast(`Loaded ${requirements.length} requirements, ${filledCandidates.length} filled, ${pipelineCandidates.length} in pipeline.`, 'success');
+    };
+    reader.onerror = () => toast('Could not read file.', 'error');
+    reader.readAsText(file);
+  }
+
+  function download(filename, text){
+    const blob = new Blob([text], {type:'text/csv;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename; document.body.appendChild(a); a.click();
+    setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 100);
+  }
+
+  // ---------- Toast ----------
+  let toastTimer;
+  function toast(msg, kind){
+    const el = $('#toast'); el.textContent = msg;
+    el.className = 'toast show ' + (kind || '');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.className = 'toast', 4000);
+  }
+
+  // ---------- Wire up ----------
+  $('#fileInput').addEventListener('change', e => { const f = e.target.files[0]; if (f) handleFile(f); e.target.value=''; });
+  $('#btnConnect').addEventListener('click', () => {
+    const url = $('#sheetUrl').value.trim();
+    if (!url){ toast('Paste your Google Sheet URL first.', 'error'); return; }
+    if (!buildFetchUrl(url)){ toast('That doesn\'t look like a Google Sheet URL.', 'error'); return; }
+    sheetUrl = url; save();
+    fetchSheet().then(() => { startAutoRefresh(); });
+  });
+  $('#btnRefresh').addEventListener('click', () => {
+    if (sheetUrl) fetchSheet();
+    else toast('Not connected to a Google Sheet. Use Disconnect → reconnect to set one.', 'error');
+  });
+  $('#btnDisconnect').addEventListener('click', () => {
+    if (!confirm('Disconnect the Google Sheet and clear cached data?')) return;
+    stopAutoRefresh();
+    requirements = []; filledCandidates = []; pipelineCandidates = [];
+    sheetUrl = null; lastSyncedAt = null;
+    localStorage.removeItem(STORAGE_KEY);
+    render(); setSync('');
+    toast('Disconnected.', 'success');
+  });
+  $('#btnDownloadTemplate').addEventListener('click', downloadTemplate);
+  $('#btnDownloadTemplate2').addEventListener('click', downloadTemplate);
+  function downloadTemplate(){ download('hiring-template.csv', TEMPLATE_CSV); toast('Template downloaded. Import it into a Google Sheet.', 'success'); }
+  $('#btnDownloadCurrent').addEventListener('click', () => {
+    download('hiring-data-' + new Date().toISOString().slice(0,10) + '.csv', toCSV(dataToRows()));
+    toast('Current snapshot downloaded.', 'success');
+  });
+  $('#autoRefresh').addEventListener('change', e => { autoRefreshOn = e.target.checked; save(); startAutoRefresh(); });
+  $('#refreshInterval').addEventListener('change', e => { refreshSec = parseInt(e.target.value)||120; save(); startAutoRefresh(); });
+
+  // ---------- Filters ----------
+  function populateFilters(){
+    const setOptions = (sel, vals) => {
+      const cur = sel.value;
+      sel.innerHTML = sel.querySelector('option').outerHTML;
+      [...new Set(vals.filter(Boolean))].sort().forEach(v => sel.add(new Option(v,v)));
+      sel.value = cur;
+    };
+    setOptions($('#filterLocation'), requirements.map(r=>r.location));
+    setOptions($('#filterRole'), requirements.map(r=>r.role));
+  }
+  ['#filterLocation','#filterRole','#filterStatus'].forEach(s => $(s).addEventListener('change', render));
+
+  // ---------- Render ----------
+  const today = new Date();
+  function daysBetween(a,b){ return Math.round((b-a)/86400000); }
+  function fmt(d){ if(!d) return '—'; const x=new Date(d); return isNaN(x) ? d : x.toLocaleDateString('en-US',{year:'numeric',month:'short',day:'numeric'}); }
+  function statusPill(s){ const m={'Open':'info','In Progress':'warn','Filled':'good','On Hold':'bad'}; return `<span class="pill ${m[s]||''}">${s||'—'}</span>`; }
+  function pct(n,d){ return d ? Math.round(n/d*100) : 0; }
+  function kpi(label, value, delta, cls){ return `<div class="kpi ${cls||''}"><div class="label">${label}</div><div class="value">${value}</div><div class="delta">${delta||'&nbsp;'}</div></div>`; }
+  function getFilters(){ return { location:$('#filterLocation').value, role:$('#filterRole').value, status:$('#filterStatus').value }; }
+  function applyReqFilter(reqs, f){ return reqs.filter(r => (!f.location||r.location===f.location)&&(!f.role||r.role===f.role)&&(!f.status||r.status===f.status)); }
+  function applyCandFilter(cands, f){ return cands.filter(c => (!f.location||c.location===f.location)&&(!f.role||c.role===f.role)); }
+
+  function render(){
+    const hasData = requirements.length + filledCandidates.length + pipelineCandidates.length > 0;
+    $('#emptyState').style.display = hasData ? 'none' : 'block';
+    $('#dashboard').style.display = hasData ? 'block' : 'none';
+    $('#filtersBar').style.display = hasData ? 'flex' : 'none';
+    $('#sourceBar').style.display = (hasData && sheetUrl) ? 'flex' : 'none';
+    $('#btnDownloadCurrent').style.display = hasData ? 'inline-block' : 'none';
+    $('#btnRefresh').style.display = sheetUrl ? 'inline-block' : 'none';
+    $('#btnDisconnect').style.display = (sheetUrl || hasData) ? 'inline-block' : 'none';
+    $('#srcUrl').textContent = sheetUrl || '';
+    $('#srcUrl').title = sheetUrl || '';
+    $('#autoRefresh').checked = autoRefreshOn;
+    $('#refreshInterval').value = String(refreshSec);
+
+    if (!hasData){ setSync(''); return; }
+    if (lastSyncedAt) setSync('ok');
+
+    const f = getFilters();
+    const reqs = applyReqFilter(requirements, f);
+    const filled = applyCandFilter(filledCandidates, f);
+    const queue = applyCandFilter(pipelineCandidates, f);
+
+    const totalPositions = reqs.reduce((s,r)=>s+r.positions,0);
+    const totalFilled = reqs.reduce((s,r)=>s+r.filled,0);
+    const totalPending = totalPositions - totalFilled;
+    const openReqs = reqs.filter(r => r.status !== 'Filled').length;
+
+    $('#kpis').innerHTML = `
+      ${kpi('Locations', new Set(reqs.map(r=>r.location)).size, '', 'info')}
+      ${kpi('Open requirements', openReqs, reqs.length+' total', 'warn')}
+      ${kpi('Total positions', totalPositions, '')}
+      ${kpi('Positions filled', totalFilled, pct(totalFilled,totalPositions)+'%', 'good')}
+      ${kpi('Positions pending', totalPending, pct(totalPending,totalPositions)+'%', 'bad')}
+      ${kpi('Candidates in queue', queue.length, '', 'info')}
+      ${kpi('Total candidate records', filled.length+queue.length, 'filled + pipeline')}
+    `;
+
+    const byLoc = {};
+    reqs.forEach(r => { const l = byLoc[r.location] = byLoc[r.location] || {positions:0,filled:0,pending:0,reqs:0,queue:0};
+      l.positions+=r.positions; l.filled+=r.filled; l.pending+=(r.positions-r.filled); l.reqs++; });
+    queue.forEach(c => { if (byLoc[c.location]) byLoc[c.location].queue++; });
+    $('#locCount').textContent = '(' + Object.keys(byLoc).length + ')';
+    $('#locations').innerHTML = Object.keys(byLoc).sort().map(name => {
+      const x = byLoc[name];
+      return `<div class="loc"><div class="name">${name} <span class="pill">${x.reqs} req</span></div>
+        <div class="stat"><span>Positions</span><b>${x.positions}</b></div>
+        <div class="stat"><span>Filled</span><b style="color:var(--good)">${x.filled}</b></div>
+        <div class="stat"><span>Pending</span><b style="color:var(--bad)">${x.pending}</b></div>
+        <div class="stat"><span>In queue</span><b style="color:var(--info)">${x.queue}</b></div>
+        <div class="bar" style="margin-top:8px"><span style="width:${pct(x.filled,x.positions)}%"></span></div></div>`;
+    }).join('') || '<div class="empty">No locations match the current filters.</div>';
+
+    const srcCounts = {};
+    filled.forEach(c => srcCounts[c.source] = (srcCounts[c.source]||0)+1);
+    const srcMax = Math.max(1, ...Object.values(srcCounts));
+    $('#sources').innerHTML = Object.keys(srcCounts).sort((a,b)=>srcCounts[b]-srcCounts[a]).map(s =>
+      `<div class="src-row"><span class="lbl">${s}</span><div class="bar"><span style="width:${srcCounts[s]/srcMax*100}%"></span></div><b>${srcCounts[s]}</b></div>`
+    ).join('') || '<div class="empty">No filled hires yet.</div>';
+
+    const stageCounts = {};
+    queue.forEach(c => stageCounts[c.stage] = (stageCounts[c.stage]||0)+1);
+    const stMax = Math.max(1, ...Object.values(stageCounts));
+    $('#stages').innerHTML = Object.keys(stageCounts).sort((a,b)=>stageCounts[b]-stageCounts[a]).map(s =>
+      `<div class="src-row"><span class="lbl">${s}</span><div class="bar"><span style="width:${stageCounts[s]/stMax*100}%"></span></div><b>${stageCounts[s]}</b></div>`
+    ).join('') || '<div class="empty">No candidates in pipeline.</div>';
+
+    $('#reqCount').textContent = '(' + reqs.length + ')';
+    const queueByReq = {};
+    queue.forEach(c => { if (c.requirementId) queueByReq[c.requirementId] = (queueByReq[c.requirementId]||0)+1; });
+    $('#reqTable tbody').innerHTML = reqs.map(r => {
+      const inQ = queueByReq[r.id] || 0;
+      const pending = r.positions - r.filled;
+      const opened = r.openedDate ? new Date(r.openedDate) : null;
+      const days = opened && !isNaN(opened) ? daysBetween(opened, today) : '—';
+      const target = r.targetCloseDate, tDate = target ? new Date(target) : null;
+      const overdue = tDate && !isNaN(tDate) && tDate < today && r.status !== 'Filled';
+      return `<tr>
+        <td>${r.id||'—'}</td><td>${r.location}</td><td>${r.role}</td>
+        <td>${r.positions}</td><td><span class="pill good">${r.filled}</span></td>
+        <td>${pending>0?`<span class="pill bad">${pending}</span>`:'<span class="pill">0</span>'}</td>
+        <td>${inQ?`<span class="pill info">${inQ}</span>`:'<span class="pill">0</span>'}</td>
+        <td><div class="bar"><span style="width:${pct(r.filled,r.positions)}%"></span></div></td>
+        <td>${statusPill(r.status)}</td><td>${fmt(r.openedDate)}</td>
+        <td>${overdue?`<span class="pill bad">${fmt(target)}</span>`:fmt(target)}</td>
+        <td>${days}</td>
+      </tr>`;
+    }).join('') || `<tr><td colspan="12" class="empty">No requirements match.</td></tr>`;
+
+    $('#filledCount').textContent = '(' + filled.length + ')';
+    $('#filledTable tbody').innerHTML = filled.map(c => `<tr>
+      <td><b>${c.name||'—'}</b></td><td>${c.role}</td><td>${c.location}</td>
+      <td>${fmt(c.joinDate)}</td><td><span class="pill">${c.source}</span></td><td>${c.recruiter||'—'}</td>
+    </tr>`).join('') || `<tr><td colspan="6" class="empty">No filled hires match.</td></tr>`;
+
+    $('#queueCount').textContent = '(' + queue.length + ')';
+    const stageMap={'Sourced':'','Screened':'info','Interview':'warn','Offer':'good','On Hold':'bad'};
+    $('#queueTable tbody').innerHTML = queue.map(c => `<tr>
+      <td><b>${c.name||'—'}</b></td><td>${c.role}</td><td>${c.location}</td>
+      <td><span class="pill ${stageMap[c.stage]||''}">${c.stage}</span></td>
+      <td><span class="pill">${c.source}</span></td><td>${fmt(c.addedDate)}</td>
+    </tr>`).join('') || `<tr><td colspan="6" class="empty">No candidates in queue.</td></tr>`;
+  }
+
+  // ---------- Boot ----------
+  load();
+  populateFilters();
+  render();
+  if (sheetUrl){
+    fetchSheet().then(() => startAutoRefresh());
+  }
+})();
+</script>
+</body>
+</html>
