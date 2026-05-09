@@ -1,6 +1,7 @@
 <script>
   import { data, filters } from '$lib/data/stores.js';
   import { goto } from '$app/navigation';
+  import { base } from '$app/paths';
   import { fly } from 'svelte/transition';
   import { quintOut } from 'svelte/easing';
   import StatusPill from '$lib/components/StatusPill.svelte';
@@ -144,7 +145,7 @@
       </tr></thead>
       <tbody>
         {#each filtered.slice(0, 200) as c, i (c.id)}
-          <tr class="row" on:click={() => goto(`/candidates/${encodeURIComponent(c.id)}`)} in:fly={{ y: 4, delay: i * 6, duration: 240 }}>
+          <tr class="row" on:click={() => goto(`${base}/candidates/${encodeURIComponent(c.id)}`)} in:fly={{ y: 4, delay: i * 6, duration: 240 }}>
             <td>
               <div class="row gap">
                 <div class="ava">{c.name?.split(' ').filter(Boolean).slice(0,2).map(w => w[0]).join('').toUpperCase() || '?'}</div>

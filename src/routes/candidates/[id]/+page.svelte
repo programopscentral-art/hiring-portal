@@ -4,6 +4,7 @@
   import { fly } from 'svelte/transition';
   import { quintOut } from 'svelte/easing';
   import StatusPill from '$lib/components/StatusPill.svelte';
+  import { base } from '$app/paths';
 
   $: id = decodeURIComponent($page.params.id);
   $: candidate = $data.candidates.find(c => c.__id === id);
@@ -76,7 +77,7 @@
 
 <svelte:head><title>{candidate?.__name || 'Candidate'} · Hiring Portal</title></svelte:head>
 
-<a href="/candidates" class="btn ghost sm" style="margin-bottom:18px">
+<a href="{base}/candidates" class="btn ghost sm" style="margin-bottom:18px">
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M15 18l-6-6 6-6"/></svg>
   All candidates
 </a>

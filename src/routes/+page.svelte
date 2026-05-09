@@ -12,6 +12,7 @@
   import Filters from '$lib/components/Filters.svelte';
   import { filters } from '$lib/data/stores.js';
   import { goto } from '$app/navigation';
+  import { base } from '$app/paths';
 
   $: hasData = $data.candidates.length || $data.activities.length || $data.plan.length;
   $: notConnected = !$config.masterUrl && !$config.trackerUrl && !$config.rosterUrl;
@@ -78,7 +79,7 @@
       <p class="muted" style="font-size:17px;line-height:1.55;margin-bottom:28px;color:var(--ink-3)">
         Connect your master tracker and weekly activity sheet — the portal will visualize plan vs. actuals across every state, university, and role for the cycle.
       </p>
-      <a href="/settings" class="btn brand lg">Connect your sheets →</a>
+      <a href="{base}/settings" class="btn brand lg">Connect your sheets →</a>
     </div>
   </section>
 
@@ -161,7 +162,7 @@
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
         </button>
       {/if}
-      <a href="/plan" class="btn ghost sm">All plan →</a>
+      <a href="{base}/plan" class="btn ghost sm">All plan →</a>
     </div>
   </div>
 
@@ -172,13 +173,13 @@
           university={u}
           active={activeUniversity === u.name}
           index={i}
-          onSelect={() => goto(`/plan?state=${encodeURIComponent(u.state)}`)}
+          onSelect={() => goto(`${base}/plan?state=${encodeURIComponent(u.state)}`)}
         />
       {/each}
     </div>
     {#if filtered.length > 12}
       <div style="text-align:center;margin-top:24px">
-        <a href="/plan" class="btn">View all {filtered.length} locations →</a>
+        <a href="{base}/plan" class="btn">View all {filtered.length} locations →</a>
       </div>
     {/if}
   {:else}
@@ -194,7 +195,7 @@
         <div class="crumb">Last 12 months</div>
         <div class="display" style="font-size:20px;margin-top:4px;font-weight:700">Interview volume</div>
       </div>
-      <a href="/analytics" class="btn ghost sm">Trends →</a>
+      <a href="{base}/analytics" class="btn ghost sm">Trends →</a>
     </div>
     <InterviewChart data={trendData} height={200} color="var(--brand)" colorDeep="var(--brand-deep)" />
   </div>
@@ -202,7 +203,7 @@
   <div class="card pad">
     <div class="row between" style="margin-bottom:14px">
       <div class="display" style="font-size:20px;font-weight:700">Recent activity</div>
-      <a href="/candidates" class="btn ghost sm">All →</a>
+      <a href="{base}/candidates" class="btn ghost sm">All →</a>
     </div>
     <div class="feed">
       {#each $recentFeed.slice(0, 5) as e, i (i + (e.name || '') + e.stage)}

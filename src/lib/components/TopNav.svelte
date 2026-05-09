@@ -1,9 +1,11 @@
 <script>
   import { page } from '$app/stores';
+  import { base } from '$app/paths';
   import { syncState, refreshAll, config, filters } from '$lib/data/stores.js';
   import { theme, toggleTheme } from '$lib/data/theme.js';
   import { goto } from '$app/navigation';
 
+  // hrefs are stored without base prefix; we add `base` everywhere they're used
   const items = [
     { href: '/',           label: 'Dashboard' },
     { href: '/plan',       label: 'Plan' },
@@ -13,9 +15,11 @@
   ];
 
   $: path = $page.url.pathname;
+  // Strip the base prefix when checking active state (path includes base on prod)
+  $: bare = base && path.startsWith(base) ? path.slice(base.length) || '/' : path;
   function isActive(href) {
-    if (href === '/') return path === '/';
-    return path.startsWith(href);
+    if (href === '/') return bare === '/' || bare === '';
+    return bare.startsWith(href);
   }
 
   $: ago = relTime($config.lastSyncedAt);
@@ -32,13 +36,13 @@
   function onSearch(e) {
     if (e.key === 'Enter') {
       filters.update(f => ({ ...f, search: q }));
-      goto('/candidates');
+      goto(`${base}/candidates`);
     }
   }
 </script>
 
 <header class="topnav">
-  <a href="/" class="brand">
+  <a href="{base}/" class="brand">
     <div class="logo">
       <svg width="22" height="22" viewBox="0 0 32 32"><rect width="32" height="32" rx="8" fill="#1A0F08"/><path d="M9 22V10h2.5v12H9zm5.5 0V10h2.5l3.5 7V10H23v12h-2.5L17 15v7h-2.5z" fill="#E35336"/></svg>
     </div>
@@ -50,7 +54,7 @@
 
   <nav class="nav">
     {#each items as it}
-      <a class="nav-item" class:active={isActive(it.href)} href={it.href} data-sveltekit-preload-data="hover">
+      <a class="nav-item" class:active={isActive(it.href)} href="{base}{it.href}" data-sveltekit-preload-data="hover">
         {it.label}
       </a>
     {/each}
@@ -101,7 +105,7 @@
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12a9 9 0 0 1 15.5-6.3M21 12a9 9 0 0 1-15.5 6.3"/><path d="M21 4v5h-5M3 20v-5h5"/></svg>
     </button>
 
-    <a href="/settings" class="btn ghost icon" aria-label="Settings" data-tooltip="Settings">
+    <a href="{base}/settings" class="btn ghost icon" aria-label="Settings" data-tooltip="Settings">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M5 12h-2M21 12h-2M12 5V3M12 21v-2M7 7L5.5 5.5M18.5 18.5L17 17M7 17l-1.5 1.5M18.5 5.5L17 7"/></svg>
     </a>
 

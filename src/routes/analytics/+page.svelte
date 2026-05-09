@@ -9,6 +9,7 @@
   import Sparkline from '$lib/components/Sparkline.svelte';
   import Donut from '$lib/components/Donut.svelte';
   import Funnel from '$lib/components/Funnel.svelte';
+  import { base } from '$app/paths';
 
   $: roleStats = $data.roleStats || {};
   $: roles = Object.keys(roleStats);
@@ -486,7 +487,7 @@
         </div>
         <div class="qlist">
           {#each $queues[q.key].slice(0, 8) as c}
-            <a href="/candidates/{encodeURIComponent(c.__id)}" class="qrow">
+            <a href="{base}/candidates/{encodeURIComponent(c.__id)}" class="qrow">
               <div style="font-weight:500;font-size:13px">{c.__name}</div>
               <span class="muted" style="font-size:11px">{c.__role || c.__currentStage || '—'}</span>
             </a>
