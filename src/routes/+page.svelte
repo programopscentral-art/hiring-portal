@@ -44,16 +44,41 @@
 
   $: trendData = $monthlyTrend.slice(-12);
 
+  // Final-round interview selections from activities. These are people who
+  // got "Selected in Interview R3" (or R2 if no R3 stage exists for that role).
+  $: finalSelections = (() => {
+    const byRole = {};
+    for (const a of $data.activities) {
+      if (a.decision !== 'selected') continue;
+      if (!byRole[a.role]) byRole[a.role] = {};
+      byRole[a.role][a.stage] = (byRole[a.role][a.stage] || 0) + 1;
+    }
+    let total = 0;
+    for (const r of Object.keys(byRole)) {
+      // Final stage = highest R-stage present
+      const stages = Object.keys(byRole[r]).filter(s => /^R\d/.test(s));
+      const finalStage = stages.sort().pop();
+      if (finalStage) total += byRole[r][finalStage] || 0;
+    }
+    return total;
+  })();
+
+  // The actual hired list — plan rows marked "Hired"
+  $: hiredList = $data.plan.filter(p => p.hired);
+
   $: kpis = (() => {
     const t = $planProgress.totals;
     const masterFilled = $data.candidates.filter(c => (c.__joiningStatus || '').toLowerCase() === 'joined').length;
+    const planHired = t.filled || 0;
     const inPipe = $data.activities.filter(a => a.decision === 'selected' || a.decision === 'hold').length;
     return {
       states: new Set($data.plan.map(p => p.state)).size,
       universities: new Set($data.plan.map(p => p.location)).size,
       positions: t.positions,
-      hired: Math.max(t.filled || 0, masterFilled),
-      open: (t.positions || 0) - Math.max(t.filled || 0, masterFilled),
+      hired: Math.max(planHired, masterFilled),
+      planHired,
+      finalSelections,
+      open: (t.positions || 0) - planHired,
       pipeline: inPipe,
       totalCtc: t.totalCtc || 0,
     };
@@ -109,16 +134,12 @@
   <Filters />
 </header>
 
-<!-- Bento KPI strip — mixed solid color cards -->
+<!-- KPI strip -->
 <section class="kpi-grid stagger">
   <StatCard label="Total positions" value={kpis.positions} kind="brand" delta={`${kpis.universities} unis · ${kpis.states} states`} icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>' />
-  <StatCard label="Hired" value={kpis.hired} kind="ink" delta={`${kpis.positions ? Math.round((kpis.hired / kpis.positions) * 100) : 0}% of plan`} icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L20 7" stroke-linecap="round" stroke-linejoin="round"/></svg>' />
-  <StatCard label="Open" value={kpis.open} kind="peach" delta="positions to fill" icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>' />
-  {#if kpis.totalCtc > 0}
-    <StatCard label="CTC budget" value={kpis.totalCtc} format={fmtCtc} kind="mauve" delta="annual run-rate" icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7H14a3.5 3.5 0 0 1 0 7H6"/></svg>' />
-  {:else}
-    <StatCard label="In pipeline" value={kpis.pipeline} kind="mauve" delta="across all roles" icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="6" r="2"/><circle cx="6" cy="18" r="2"/><circle cx="18" cy="12" r="2"/><path d="M8 6h8M8 18h8M8 6c0 8 8 4 8 12M8 18c0-8 8-4 8-12"/></svg>' />
-  {/if}
+  <StatCard label="Hired" value={kpis.hired} kind="ink" delta={kpis.positions ? `${Math.round((kpis.hired / kpis.positions) * 100)}% of plan filled` : ''} icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L20 7" stroke-linecap="round" stroke-linejoin="round"/></svg>' />
+  <StatCard label="Final selections" value={kpis.finalSelections} kind="peach" delta="passed last interview" icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4 2 7-6.5-4.5L5.5 22l2-7L2 11h7l3-9z"/></svg>' />
+  <StatCard label="Open positions" value={kpis.open} kind="mauve" delta={`${kpis.pipeline} candidates in pipeline`} icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>' />
 </section>
 
 <!-- Map row — full width, dominant -->
@@ -186,6 +207,32 @@
     <div class="empty">No universities match the current filters.</div>
   {/if}
 </section>
+
+<!-- Hired roster — explicit list of which positions are filled -->
+{#if hiredList.length}
+  <section class="card pad fade-up" style="margin-top:32px;animation-delay:350ms">
+    <div class="section-h">
+      <div class="title">
+        <h2>Recent hires</h2>
+        <span class="count">{hiredList.length} filled · {Math.round(((kpis.hired) / kpis.positions) * 100)}% of plan</span>
+      </div>
+      <a href="{base}/plan" class="btn ghost sm">Full plan →</a>
+    </div>
+    <div class="hire-grid">
+      {#each hiredList as h, i (h.state + h.location + h.role + i)}
+        <div class="hire-pill" in:fly={{ y: 6, delay: i * 40, duration: 360, easing: quintOut }}>
+          <div class="hire-check">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+          </div>
+          <div class="grow" style="min-width:0">
+            <div class="hire-uni">{h.location}</div>
+            <div class="hire-meta">{h.state} · <span class="hire-role">{h.role}</span></div>
+          </div>
+        </div>
+      {/each}
+    </div>
+  </section>
+{/if}
 
 <!-- Bottom row: trend + recent activity -->
 <section class="bottom-row fade-up" style="animation-delay:400ms">
@@ -311,5 +358,57 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  /* Recent hires */
+  .hire-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+    gap: 10px;
+  }
+  .hire-pill {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    background: var(--ok-soft);
+    border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+    border-radius: 12px;
+    transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+  }
+  .hire-pill:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-sm);
+  }
+  .hire-check {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    background: var(--ok);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .hire-uni {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .hire-meta {
+    font-size: 11px;
+    color: var(--ink-3);
+    margin-top: 2px;
+    font-weight: 500;
+  }
+  .hire-role {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    background: var(--ink);
+    color: var(--brand-soft);
+    padding: 1px 7px;
+    border-radius: 99px;
+    margin-left: 2px;
   }
 </style>

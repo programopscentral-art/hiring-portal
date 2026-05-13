@@ -89,12 +89,6 @@
   })();
 
   $: maxPos = Math.max(1, ...positioned.map(u => u.positions || 0));
-  // Pin scale — much smaller than before
-  function pinScale(u) {
-    const base = 0.85;
-    const bonus = ((u.positions || 1) / maxPos) * 0.5;  // 0..0.5
-    return base + bonus;
-  }
   function fillStatus(u) { return u.positions ? Math.round((u.hired / u.positions) * 100) : 0; }
 
   $: tooltipStyle = (() => {
@@ -136,22 +130,8 @@
         <stop offset="100%" stop-color="#E35336" stop-opacity=".65"/>
       </linearGradient>
       <filter id="pinShadow" x="-50%" y="-50%" width="200%" height="200%">
-        <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-color="#1A0F08" flood-opacity=".35"/>
+        <feDropShadow dx="0" dy="1" stdDeviation=".8" flood-color="#1A0F08" flood-opacity=".30"/>
       </filter>
-
-      <!-- Map pin shape: tip at (0,0), bell centered at (0,-16). 18 wide x 22 tall. -->
-      <g id="mappin">
-        <path
-          d="M0 0
-             C-3.5 -4.5 -9 -10 -9 -16
-             C-9 -21 -5 -25 0 -25
-             C5 -25 9 -21 9 -16
-             C9 -10 3.5 -4.5 0 0 Z"
-          stroke-width="1.5"
-          stroke-linejoin="round"
-        />
-        <circle cx="0" cy="-16" r="3.4" fill="#FFFFFF" />
-      </g>
     </defs>
 
     <rect x={$viewBox[0]} y={$viewBox[1]} width={$viewBox[2]} height={$viewBox[3]} fill="url(#dotgrid)" />
@@ -181,17 +161,9 @@
     </g>
 
     {#if mounted}
-      <!-- Subtle glow halos under big pins -->
-      {#each positioned as u (u.name + u.state)}
-        {#if u.positions >= maxPos * 0.7 && (!activeState || u.state === activeState)}
-          <circle cx={u.x} cy={u.y - 14} r={18} fill="url(#pinGlow)" opacity=".7"/>
-        {/if}
-      {/each}
-
-      <!-- Map pins -->
+      <!-- Map pins — inlined SVG so CSS can style the path -->
       {#each positioned as u, i (u.name + u.state)}
         {@const inFocus = !activeState || u.state === activeState}
-        {@const scale = pinScale(u)}
         {@const isActive = activeUniversity === u.name}
         {@const isHired = u.hired > 0}
         <g
@@ -210,10 +182,16 @@
           on:mouseleave={() => { if (hovered?.name === u.name) hovered = null; }}
           on:focus={() => hovered = u}
           on:blur={() => { if (hovered?.name === u.name) hovered = null; }}
-          in:fly={{ y: -8, delay: 80 + i * 14, duration: 480, easing: quintOut }}
-          transform="translate({u.x}, {u.y}) scale({scale})"
+          in:fly={{ y: -6, delay: 60 + i * 12, duration: 380, easing: quintOut }}
+          transform="translate({u.x}, {u.y})"
         >
-          <use href="#mappin" filter="url(#pinShadow)" />
+          <!-- Compact teardrop pin: 12 wide × 16 tall, tip at (0, 0) -->
+          <path
+            class="pin-body"
+            d="M0,0 C-2.8,-3.5 -6,-6.5 -6,-10 C-6,-13.3 -3.3,-16 0,-16 C3.3,-16 6,-13.3 6,-10 C6,-6.5 2.8,-3.5 0,0 Z"
+            filter="url(#pinShadow)"
+          />
+          <circle class="pin-dot" cx="0" cy="-10" r="2.4" fill="#FFFFFF" />
         </g>
       {/each}
     {/if}
@@ -310,28 +288,32 @@
   .state.dimmed { opacity: .12; pointer-events: none; }
   .state:focus { outline: none; }
 
-  /* Map pins — teardrop shape */
-  .pin { cursor: pointer; transition: transform var(--t-base) var(--ease), opacity 600ms var(--ease); transform-origin: center bottom; transform-box: fill-box; }
+  /* Map pins — compact teardrop. transform attribute = translate (don't override).
+     Hover effect uses the CSS `scale` property (separate from transform) so it
+     never conflicts with the inline transform="translate(...)" positioning. */
+  .pin {
+    cursor: pointer;
+    transition: scale 180ms cubic-bezier(.34, 1.56, .64, 1), opacity 400ms var(--ease);
+    transform-box: fill-box;
+    transform-origin: center bottom;
+    scale: 1;
+  }
   .pin.dimmed { opacity: 0; pointer-events: none; }
-  .pin :global(path) {
+  .pin .pin-body {
     fill: var(--brand);
     stroke: #FFFFFF;
-    transition: fill var(--t-base) var(--ease), stroke var(--t-base) var(--ease);
+    stroke-width: 1.4;
+    stroke-linejoin: round;
+    transition: fill 180ms var(--ease), stroke 180ms var(--ease);
   }
-  .pin.hired :global(path) { fill: var(--brand-deep); }
-  .pin.active :global(path) { fill: var(--ink); stroke: var(--brand); stroke-width: 2.5; }
-  .pin:hover :global(path), .pin.hovered :global(path), .pin:focus :global(path) {
+  .pin.hired .pin-body { fill: var(--brand-deep); }
+  .pin.active .pin-body { fill: var(--ink); stroke: var(--brand); stroke-width: 2; }
+  .pin:hover .pin-body, .pin.hovered .pin-body, .pin:focus .pin-body {
     stroke: var(--ink);
-    stroke-width: 2;
+    stroke-width: 1.6;
   }
-  /* Approximate-position pins get a slightly muted tint */
-  .pin.approx :global(path) { opacity: .85; }
-  .pin:hover, .pin.hovered, .pin:focus { outline: none; }
-
-  /* Hover lifts the pin slightly */
-  .pin:hover, .pin.hovered, .pin:focus {
-    transform: translate(var(--tx, 0), var(--ty, 0)) scale(1.18) !important;
-  }
+  .pin.approx .pin-body { opacity: .82; }
+  .pin:hover, .pin.hovered, .pin:focus { outline: none; scale: 1.35; }
 
   .tooltip {
     position: absolute;
