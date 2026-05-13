@@ -69,7 +69,7 @@
             <span class="pill brand" style="font-size:12px;font-weight:600">{t.role}</span>
             <span class="muted" style="font-size:11px">{t.stages[0]?.count || 0} sourced → {t.stages[t.stages.length - 1]?.count || 0} selected</span>
           </div>
-          <Funnel stages={t.stages} accent={t.role === 'PMA' ? 'brand' : t.role === 'PM' ? 'sage' : t.role === 'COS' ? 'plum' : 'gold'} />
+          <Funnel stages={t.stages} accent={t.role === 'PMA' ? 'brand' : t.role === 'PM' ? 'olive' : t.role === 'COS' ? 'mauve' : 'gold'} />
         </div>
       {/each}
     </div>
@@ -83,7 +83,7 @@
           <div class="role-h">
             <span class="pill brand" style="font-size:12px;font-weight:600">{t.role}</span>
           </div>
-          <Funnel stages={t.stages} accent={t.role === 'PMA' ? 'brand' : t.role === 'PM' ? 'sage' : 'plum'} />
+          <Funnel stages={t.stages} accent={t.role === 'PMA' ? 'brand' : t.role === 'PM' ? 'olive' : 'mauve'} />
         </div>
       {/each}
     </div>

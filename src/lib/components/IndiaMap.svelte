@@ -185,13 +185,17 @@
           in:fly={{ y: -6, delay: 60 + i * 12, duration: 380, easing: quintOut }}
           transform="translate({u.x}, {u.y})"
         >
-          <!-- Compact teardrop pin: 12 wide × 16 tall, tip at (0, 0) -->
-          <path
-            class="pin-body"
-            d="M0,0 C-2.8,-3.5 -6,-6.5 -6,-10 C-6,-13.3 -3.3,-16 0,-16 C3.3,-16 6,-13.3 6,-10 C6,-6.5 2.8,-3.5 0,0 Z"
-            filter="url(#pinShadow)"
-          />
-          <circle class="pin-dot" cx="0" cy="-10" r="2.4" fill="#FFFFFF" />
+          <!-- Invisible hit-area circle: big enough that hover never breaks even when cursor wiggles -->
+          <circle class="pin-hit" cx="0" cy="-8" r="14" fill="transparent" />
+          <!-- The visible pin: scales on hover via .pin-shape, NOT the whole <g> -->
+          <g class="pin-shape">
+            <path
+              class="pin-body"
+              d="M0,0 C-2.8,-3.5 -6,-6.5 -6,-10 C-6,-13.3 -3.3,-16 0,-16 C3.3,-16 6,-13.3 6,-10 C6,-6.5 2.8,-3.5 0,0 Z"
+              filter="url(#pinShadow)"
+            />
+            <circle class="pin-dot" cx="0" cy="-10" r="2.4" fill="#FFFFFF" />
+          </g>
         </g>
       {/each}
     {/if}
@@ -270,10 +274,10 @@
       radial-gradient(700px 500px at 10% 100%, rgba(153, 136, 161, .08), transparent 50%),
       var(--surface-soft);
     border-radius: var(--r-lg);
-    overflow: hidden;
+    overflow: visible;          /* tooltip needs to escape when pin is near edge */
     border: 1px solid var(--line);
   }
-  .map { width: 100%; height: 100%; display: block; }
+  .map { width: 100%; height: 100%; display: block; border-radius: var(--r-lg); }
 
   .state {
     stroke: rgba(26, 15, 8, .35);
@@ -288,32 +292,38 @@
   .state.dimmed { opacity: .12; pointer-events: none; }
   .state:focus { outline: none; }
 
-  /* Map pins — compact teardrop. transform attribute = translate (don't override).
-     Hover effect uses the CSS `scale` property (separate from transform) so it
-     never conflicts with the inline transform="translate(...)" positioning. */
+  /* Map pins — compact teardrop. The outer <g> uses transform="translate"
+     for positioning. The inner .pin-shape <g> scales on hover. The .pin-hit
+     invisible circle keeps the cursor "on" the pin during hover so we never
+     get hover-flicker from the cursor falling out of the shape. */
   .pin {
     cursor: pointer;
-    transition: scale 180ms cubic-bezier(.34, 1.56, .64, 1), opacity 400ms var(--ease);
+    transition: opacity 400ms var(--ease);
+  }
+  .pin.dimmed { opacity: 0; pointer-events: none; }
+  .pin-hit { cursor: pointer; }
+  .pin-shape {
+    transition: scale 160ms ease-out;
     transform-box: fill-box;
     transform-origin: center bottom;
     scale: 1;
+    pointer-events: none;  /* hit-area is handled by .pin-hit only */
   }
-  .pin.dimmed { opacity: 0; pointer-events: none; }
+  .pin:hover .pin-shape, .pin.hovered .pin-shape, .pin:focus-visible .pin-shape {
+    scale: 1.25;
+  }
   .pin .pin-body {
     fill: var(--brand);
     stroke: #FFFFFF;
     stroke-width: 1.4;
     stroke-linejoin: round;
-    transition: fill 180ms var(--ease), stroke 180ms var(--ease);
+    transition: fill 160ms var(--ease), stroke 160ms var(--ease);
   }
   .pin.hired .pin-body { fill: var(--brand-deep); }
   .pin.active .pin-body { fill: var(--ink); stroke: var(--brand); stroke-width: 2; }
-  .pin:hover .pin-body, .pin.hovered .pin-body, .pin:focus .pin-body {
-    stroke: var(--ink);
-    stroke-width: 1.6;
-  }
+  .pin:hover .pin-body, .pin.hovered .pin-body { stroke: var(--ink); stroke-width: 1.6; }
   .pin.approx .pin-body { opacity: .82; }
-  .pin:hover, .pin.hovered, .pin:focus { outline: none; scale: 1.35; }
+  .pin:focus { outline: none; }
 
   .tooltip {
     position: absolute;

@@ -51,12 +51,17 @@
   .fill {
     height: 100%;
     border-radius: 8px;
-    background: linear-gradient(90deg, var(--brand) 0%, var(--gold) 100%);
+    background: linear-gradient(90deg, var(--brand) 0%, var(--brand-deep) 100%);
     transition: width 600ms var(--ease);
   }
-  .fill.sage { background: linear-gradient(90deg, var(--sage) 0%, #76B59A 100%); }
-  .fill.gold { background: linear-gradient(90deg, var(--gold) 0%, #E1B574 100%); }
-  .fill.plum { background: linear-gradient(90deg, var(--plum) 0%, #9788D1 100%); }
+  .fill.brand { background: linear-gradient(90deg, var(--brand) 0%, var(--brand-deep) 100%); }
+  .fill.olive { background: linear-gradient(90deg, var(--olive) 0%, #4A5634 100%); }
+  .fill.gold  { background: linear-gradient(90deg, var(--gold) 0%, #8E6B36 100%); }
+  .fill.mauve { background: linear-gradient(90deg, var(--mauve) 0%, var(--mauve-deep) 100%); }
+  .fill.peach { background: linear-gradient(90deg, var(--brand-soft) 0%, var(--brand) 100%); }
+  /* Back-compat aliases for old class names */
+  .fill.sage { background: linear-gradient(90deg, var(--olive) 0%, #4A5634 100%); }
+  .fill.plum { background: linear-gradient(90deg, var(--mauve) 0%, var(--mauve-deep) 100%); }
   .conv {
     align-self: center;
     display: flex; align-items: center; gap: 6px;
