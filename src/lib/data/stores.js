@@ -1,5 +1,5 @@
 import { writable, derived, get } from 'svelte/store';
-import { fetchSheetCSV } from './sheets.js';
+import { fetchSheetCSV, fetchWithTabFallback } from './sheets.js';
 import { parseMasterSummaryTab, parseMasterSheet, parseTrackerSheet } from './parse.js';
 import { mergeData } from './normalize.js';
 import {
@@ -66,6 +66,19 @@ export const queues       = derived(data, $d => computeQueues($d));
 export const recentFeed   = derived(data, $d => computeRecentActivity($d));
 export const dropoff      = derived(funnel, $f => computeDropoff($f));
 
+// Heuristic: does this CSV text look like the master summary tab?
+// Signature: first row has role headers (PMA, PM, COS, BOA) OR contains
+// "S.No,State,Location" of the hiring plan.
+function looksLikeMasterSummary(text) {
+  if (!text || text.trim().length < 100) return false;
+  const head = text.slice(0, 2000).toLowerCase();
+  // Role-stats signature: header row with role names in adjacent columns
+  if (/(^|\n)(pma|pm|cos|boa)[\s,]/.test(head) && /total resumes shortlisted/.test(head)) return true;
+  // Plan signature: contains the hiring-plan header row
+  if (/s\.?\s*no.*?state.*?location.*?role/.test(head.replace(/\s+/g, ' '))) return true;
+  return false;
+}
+
 // ----- Lifecycle -----
 let refreshTimer = null;
 
@@ -114,11 +127,15 @@ export async function refreshAll() {
   try {
     const tasks = {};
 
-    // Master sheet — fetch the default tab and try to parse it as the new
-    // "summary + rich plan" format. If that fails (or it looks like the
-    // 170-col candidate template), fall back to the per-candidate parser.
+    // Master sheet — fetch with auto-tab-fallback. If the URL's default tab
+    // is empty or unrecognizable, scan every tab and find one that looks
+    // like the summary stats / hiring plan format.
     if (cfg.masterUrl) {
-      tasks.masterText = fetchSheetCSV(cfg.masterUrl);
+      tasks.masterText = fetchWithTabFallback(cfg.masterUrl, looksLikeMasterSummary)
+        .then(r => {
+          if (r.foundGid) console.info(`[master] auto-discovered summary tab at gid=${r.foundGid}`);
+          return r.text;
+        });
     }
     if (cfg.trackerUrl) {
       tasks.trackerText = fetchSheetCSV(cfg.trackerUrl);
