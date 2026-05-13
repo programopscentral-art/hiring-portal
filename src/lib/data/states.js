@@ -47,10 +47,15 @@ const LAT_MIN = 7.5, LAT_MAX = 36.0;
 export function project(state, w, h, padding = 30) {
   const meta = INDIA_STATES[state];
   if (!meta) return null;
+  return projectLatLon(meta.lat, meta.lon, w, h, padding);
+}
+
+// Project a raw lat/lon to SVG coords (used for university-specific positioning)
+export function projectLatLon(lat, lon, w, h, padding = 30) {
   const innerW = w - padding * 2;
   const innerH = h - padding * 2;
-  const x = ((meta.lon - LON_MIN) / (LON_MAX - LON_MIN)) * innerW + padding;
-  const y = h - (((meta.lat - LAT_MIN) / (LAT_MAX - LAT_MIN)) * innerH + padding);
+  const x = ((lon - LON_MIN) / (LON_MAX - LON_MIN)) * innerW + padding;
+  const y = h - (((lat - LAT_MIN) / (LAT_MAX - LAT_MIN)) * innerH + padding);
   return { x, y };
 }
 
