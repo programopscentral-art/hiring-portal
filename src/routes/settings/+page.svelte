@@ -1,30 +1,22 @@
 <script>
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
-  import { config, setConfig, refreshAll, disconnect, syncState, rawMaster, rawSummary, rawTracker, toast } from '$lib/data/stores.js';
+  import { config, setConfig, refreshAll, disconnect, syncState, tabSummary, toast } from '$lib/data/stores.js';
 
-  // Local form state — initialized once on mount, not bound reactively to the
-  // store (which would fight the user's typing).
-  let masterUrl = '';
-  let trackerUrl = '';
-  let rosterUrl = '';
+  let sheetUrl = '';
   let refreshSec = 300;
   let autoRefresh = true;
 
   onMount(() => {
     const c = get(config);
-    masterUrl = c.masterUrl || '';
-    trackerUrl = c.trackerUrl || '';
-    rosterUrl = c.rosterUrl || '';
+    sheetUrl = c.sheetUrl || '';
     refreshSec = c.refreshSec || 300;
     autoRefresh = c.autoRefresh !== false;
   });
 
   async function connect() {
     setConfig({
-      masterUrl: masterUrl.trim(),
-      trackerUrl: trackerUrl.trim(),
-      rosterUrl: rosterUrl.trim(),
+      sheetUrl: sheetUrl.trim(),
       refreshSec: parseInt(refreshSec) || 300,
       autoRefresh,
     });
@@ -35,7 +27,7 @@
   function onDisconnect() {
     if (!confirm('Disconnect and clear cached data?')) return;
     disconnect();
-    masterUrl = ''; trackerUrl = ''; rosterUrl = '';
+    sheetUrl = '';
   }
 
   function downloadAppsScript() {
@@ -91,27 +83,24 @@ function out_(text) {
 
 <section class="grid-2">
   <div class="card pad-lg">
-    <h2 class="serif" style="font-size:22px;margin-bottom:6px">Connect your sheets</h2>
+    <h2 class="serif" style="font-size:22px;margin-bottom:6px">Connect your sheet</h2>
     <p class="muted" style="font-size:13px;margin-bottom:24px">
-      Paste either the Apps Script <code>/exec</code> URL (for private sheets) or the regular Google Sheet share URL ("Anyone with the link can view").
+      Paste a single Google Sheet URL. The portal auto-discovers every tab, classifies each one (summary stats / hiring plan / role tracker / candidate roster), and merges all the data. Any changes you make in the sheet — including new tabs or new columns — reflect on the portal at the next sync.
     </p>
 
     <div class="field">
-      <label for="masterUrl">Master tracker — per-candidate detail</label>
-      <input id="masterUrl" class="input" bind:value={masterUrl} placeholder="https://script.google.com/.../exec  or  https://docs.google.com/spreadsheets/d/..." autocomplete="off" spellcheck="false" />
-      <div class="muted hint">Sheet 1 — full pipeline per candidate (~170 columns).</div>
-    </div>
-
-    <div class="field">
-      <label for="trackerUrl">Activity tracker — weekly + hiring plan</label>
-      <input id="trackerUrl" class="input" bind:value={trackerUrl} placeholder="https://script.google.com/.../exec  or  https://docs.google.com/spreadsheets/d/..." autocomplete="off" spellcheck="false" />
-      <div class="muted hint">Sheet 2 — PMA / PM / COS rounds + plan rows.</div>
-    </div>
-
-    <div class="field">
-      <label for="rosterUrl">Candidates roster <span class="muted" style="font-weight:400">(optional)</span></label>
-      <input id="rosterUrl" class="input" bind:value={rosterUrl} placeholder="Master sheet URL with #gid=1032909525 (or any candidate-list tab)" autocomplete="off" spellcheck="false" />
-      <div class="muted hint">Per-candidate roster tab from the master sheet. Append <code>#gid=&lt;tab id&gt;</code> to point at a specific tab.</div>
+      <label for="sheetUrl">Sheet URL</label>
+      <input
+        id="sheetUrl"
+        class="input"
+        bind:value={sheetUrl}
+        placeholder="https://docs.google.com/spreadsheets/d/..."
+        autocomplete="off"
+        spellcheck="false"
+      />
+      <div class="muted hint">
+        Share the sheet as <strong>Anyone with the link can view</strong>, or deploy the Apps Script proxy on the right and paste its <code>/exec</code> URL.
+      </div>
     </div>
 
     <div class="row gap" style="flex-wrap:wrap;align-items:center">
@@ -128,11 +117,11 @@ function out_(text) {
     </div>
 
     <div class="row gap" style="margin-top:24px;flex-wrap:wrap">
-      <button class="btn brand" on:click={connect}>{$config.masterUrl || $config.trackerUrl ? 'Update connection' : 'Connect'}</button>
+      <button class="btn brand" on:click={connect}>{$config.sheetUrl ? 'Update connection' : 'Connect'}</button>
       <button class="btn" on:click={() => refreshAll()} disabled={$syncState.status === 'syncing'}>
         {$syncState.status === 'syncing' ? 'Syncing…' : 'Refresh now'}
       </button>
-      {#if $config.masterUrl || $config.trackerUrl}
+      {#if $config.sheetUrl}
         <button class="btn danger" on:click={onDisconnect}>Disconnect</button>
       {/if}
     </div>
@@ -144,45 +133,47 @@ function out_(text) {
       </div>
     {/if}
 
-    <div class="card soft" style="padding:18px;margin-top:20px">
-      <div class="status-grid">
-        <div>
-          <div style="font-weight:600;font-size:13px;margin-bottom:2px">Master summary</div>
-          <div class="muted" style="font-size:11px">
-            {Object.keys($rawSummary.roleStats).length} roles · {$rawSummary.planRich.length} plan rows
-          </div>
-        </div>
-        <div>
-          <div style="font-weight:600;font-size:13px;margin-bottom:2px">Candidate roster</div>
-          <div class="muted" style="font-size:11px">{$rawMaster.candidates.length} candidates · {$rawMaster.headers.length} cols</div>
-        </div>
-        <div>
-          <div style="font-weight:600;font-size:13px;margin-bottom:2px">Tracker sheet</div>
-          <div class="muted" style="font-size:11px">{$rawTracker.activities.length} events · {$rawTracker.plan.length} plan rows</div>
+    {#if $tabSummary.length}
+      <div class="card soft" style="padding:18px;margin-top:20px">
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">Tabs discovered ({$tabSummary.length})</div>
+        <div class="tab-list">
+          {#each $tabSummary as t}
+            <div class="tab-row">
+              <span class="pill {t.kind === 'summary' ? 'brand' : t.kind === 'plan' ? 'ok' : t.kind === 'role-tracker' ? 'mauve' : t.kind === 'candidates' ? 'peach' : 'outline'}">{t.kind}</span>
+              <span class="mono" style="font-size:11px;color:var(--ink-3)">gid={t.gid}</span>
+              <span class="muted" style="font-size:11px">
+                {t.events != null ? `${t.events} events` : ''}
+                {t.role ? `· ${t.role}` : ''}
+                {t.planRows != null ? `${t.planRows} plan rows` : ''}
+                {t.candidates != null ? `${t.candidates} candidates` : ''}
+                {!t.events && !t.planRows && !t.candidates ? `${t.bytes} bytes` : ''}
+              </span>
+            </div>
+          {/each}
         </div>
       </div>
-    </div>
+    {/if}
   </div>
 
   <div class="card pad-lg">
     <h2 class="serif" style="font-size:22px;margin-bottom:14px">Apps Script proxy</h2>
     <p class="muted" style="font-size:13px;margin-bottom:14px">
-      The recommended path: keep your sheets <strong style="color:var(--ink)">private</strong> and use a tiny Google Apps Script as a CSV proxy.
+      Optional. Use only if your sheet is <strong style="color:var(--ink)">private</strong> and you can't make it link-shareable.
     </p>
 
     <ol class="how">
-      <li>Open your hiring sheet → <b>Extensions → Apps Script</b>.</li>
-      <li>Delete the placeholder code, paste the proxy below, and save.</li>
+      <li>Open your sheet → <b>Extensions → Apps Script</b>.</li>
+      <li>Delete the placeholder code, paste the proxy, and save.</li>
       <li><b>Deploy → New deployment</b> → Type: <b>Web app</b> → Execute as: <b>Me</b> → Access: <b>Anyone</b>.</li>
-      <li>Authorize when prompted (Advanced → Go to script → Allow).</li>
-      <li>Copy the <b>Web app URL</b> (ends with <code>/exec</code>) and paste it on the left.</li>
+      <li>Authorize when prompted.</li>
+      <li>Copy the <b>Web app URL</b> (ends with <code>/exec</code>) and paste it as the Sheet URL.</li>
     </ol>
 
     <button class="btn" on:click={downloadAppsScript}>⬇ Download apps-script.gs</button>
 
-    <div class="muted" style="font-size:11px;margin-top:14px">
-      Tip: to read a non-default tab, append <code>?sheet=TabName</code> to the <code>/exec</code> URL.
-    </div>
+    <p class="muted" style="font-size:11px;margin-top:14px">
+      Note: the Apps Script approach returns one tab at a time. For multi-tab auto-discovery (the recommended path), use the regular share URL instead.
+    </p>
   </div>
 </section>
 
@@ -190,11 +181,17 @@ function out_(text) {
   .grid-2 { display: grid; grid-template-columns: 1.2fr 1fr; gap: 20px; align-items: start; }
   @media (max-width: 1100px) { .grid-2 { grid-template-columns: 1fr; } }
   .field { margin-bottom: 18px; }
-  .field label { display: block; font-size: 12px; font-weight: 500; margin-bottom: 6px; color: var(--ink-2); }
-  .field .hint { font-size: 11px; margin-top: 6px; }
+  .field label { display: block; font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--ink-2); }
+  .field .hint { font-size: 11px; margin-top: 6px; color: var(--ink-3); }
   code { font-family: var(--font-mono); background: var(--surface-sunk); padding: 1px 6px; border-radius: 4px; font-size: 12px; }
   .how { padding-left: 20px; color: var(--ink-2); line-height: 1.8; font-size: 13px; margin-bottom: 18px; }
   .how b { color: var(--ink); }
-  .status-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-  @media (max-width: 700px) { .status-grid { grid-template-columns: 1fr; } }
+
+  .tab-list { display: flex; flex-direction: column; gap: 4px; }
+  .tab-row {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .tab-row:last-child { border-bottom: 0; }
 </style>

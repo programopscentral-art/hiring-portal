@@ -15,7 +15,7 @@
   import { base } from '$app/paths';
 
   $: hasData = $data.candidates.length || $data.activities.length || $data.plan.length;
-  $: notConnected = !$config.masterUrl && !$config.trackerUrl && !$config.rosterUrl;
+  $: notConnected = !$config.sheetUrl;
 
   let activeUniversity = '';
 
