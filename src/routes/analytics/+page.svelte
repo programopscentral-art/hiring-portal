@@ -9,6 +9,7 @@
   import Sparkline from '$lib/components/Sparkline.svelte';
   import Donut from '$lib/components/Donut.svelte';
   import Funnel from '$lib/components/Funnel.svelte';
+  import InterviewChart from '$lib/components/InterviewChart.svelte';
   import { base } from '$app/paths';
 
   $: roleStats = $data.roleStats || {};
@@ -61,6 +62,66 @@
   let locView = 'states'; // 'states' | 'universities'
 
   function fmtPct(n) { return Math.round(n) + '%'; }
+
+  // -- Derived stats for the new Overview --
+
+  $: planTotals = $planProgress.totals;
+  $: hiredCount = planTotals.filled || 0;
+
+  // Pipeline health: outcome breakdown across ALL tracker events
+  $: pipelineHealth = (() => {
+    const acc = { selected: 0, hold: 0, rescheduled: 0, pending: 0, rejected: 0 };
+    for (const a of $data.activities) {
+      const d = a.decision || 'pending';
+      if (d in acc) acc[d]++;
+      else if (d === 'other') acc.pending++;
+    }
+    return acc;
+  })();
+  $: pipelineHealthTotal = Object.values(pipelineHealth).reduce((s, n) => s + n, 0);
+
+  // Pre-computed donut segments (avoids {@const} inside <svg> which Svelte 5 disallows)
+  const DONUT_C = 2 * Math.PI * 48;
+  $: donutSegments = (() => {
+    const items = [
+      { val: pipelineHealth.selected, color: 'var(--olive)' },
+      { val: pipelineHealth.hold, color: 'var(--warn)' },
+      { val: pipelineHealth.rescheduled, color: 'var(--mauve)' },
+      { val: pipelineHealth.pending, color: 'var(--ink-3)' },
+      { val: pipelineHealth.rejected, color: 'var(--brand)' },
+    ];
+    const total = Math.max(1, items.reduce((s, x) => s + x.val, 0));
+    let cum = 0;
+    return items.map(it => {
+      const arc = (it.val / total) * DONUT_C;
+      const offset = -(cum / total) * DONUT_C;
+      cum += it.val;
+      return { ...it, arc, offset };
+    });
+  })();
+
+  const healthLegendItems = [
+    { key: 'selected', label: 'Selected', color: 'var(--olive)' },
+    { key: 'hold', label: 'Hold', color: 'var(--warn)' },
+    { key: 'rescheduled', label: 'Rescheduled', color: 'var(--mauve)' },
+    { key: 'pending', label: 'Pending', color: 'var(--ink-3)' },
+    { key: 'rejected', label: 'Rejected', color: 'var(--brand)' },
+  ];
+
+  // Top universities by hire progress
+  $: topUniversities = (() => {
+    const m = new Map();
+    for (const p of $data.plan) {
+      const k = `${p.state}::${p.location}`;
+      if (!m.has(k)) m.set(k, { name: p.location, state: p.state, positions: 0, hired: 0 });
+      const u = m.get(k);
+      u.positions += p.positions;
+      if (p.hired) u.hired += p.positions;
+    }
+    return [...m.values()]
+      .map(u => ({ ...u, progress: u.positions ? Math.round((u.hired / u.positions) * 100) : 0 }))
+      .sort((a, b) => b.progress - a.progress || b.hired - a.hired);
+  })();
   function fmtCtc(n) {
     if (!n) return '—';
     const r = Math.round(n * 10) / 10;
@@ -155,86 +216,145 @@
 {#if tab === 'overview'}
   <section in:fly={{ y: 8, duration: 320 }}>
 
+    <!-- KPI strip -->
     <div class="kpi-grid stagger">
       <StatCard label="Resumes reviewed" value={globalTotals.resumes} kind="brand" delta="across all roles" />
-      <StatCard label="Interviews conducted" value={globalTotals.interviews} kind="default" delta="R1 + R2 + R3" />
+      <StatCard label="Interviews conducted" value={globalTotals.interviews} kind="ink" delta="R1 + R2 + R3" />
       <StatCard label="Final selections" value={globalTotals.selected} kind="peach" delta={globalTotals.resumes ? fmtPct(globalTotals.selected / globalTotals.resumes * 100) + ' conversion' : ''} />
-      <StatCard label="Plan CTC budget" value={$planProgress.totals.totalCtc || 0} format={(n) => n >= 100 ? '₹' + (n/100).toFixed(2) + ' Cr' : '₹' + Math.round(n) + ' L'} kind="mauve" delta="annual run-rate" />
+      <StatCard label="Positions hired" value={hiredCount} kind="mauve" delta={planTotals.positions ? fmtPct(hiredCount / planTotals.positions * 100) + ' of plan filled' : ''} />
     </div>
 
+    <!-- Cross-role conversion comparison -->
     {#if hasMaster}
-      <div class="role-cards stagger">
-        {#each roleCards as r, i (r.role)}
-          <div class="role-card card pad" in:fly={{ y: 8, delay: i * 60, duration: 400, easing: quintOut }}>
-            <div class="rc-head">
-              <span class="pill brand" style="font-size:13px;font-weight:600;padding:5px 12px">{r.role}</span>
-              <div class="muted mono" style="font-size:11px">{r.conv}% top→final</div>
-            </div>
-
-            <div class="rc-stats">
-              <div class="rc-stat">
-                <div class="rc-num serif">{r.resumes}</div>
-                <div class="rc-lbl">Resumes</div>
-              </div>
-              <div class="rc-stat">
-                <div class="rc-num serif" style="color:var(--brand)">{r.selected}</div>
-                <div class="rc-lbl">Shortlist</div>
-                <div class="rc-pct">{r.resumes ? fmtPct(r.selected / r.resumes * 100) : '—'}</div>
-              </div>
-              <div class="rc-stat">
-                <div class="rc-num serif" style="color:var(--gold)">{r.r1sel + r.r2sel + r.r3sel}</div>
-                <div class="rc-lbl">Selected</div>
-              </div>
-            </div>
-
-            <div class="rc-rounds">
-              <div class="rc-round">
-                <div class="rc-round-h">R1</div>
-                <div class="rc-round-bar">
-                  <div class="rc-round-fill" style="width:{r.r1 ? (r.r1sel / r.r1) * 100 : 0}%"></div>
-                </div>
-                <div class="rc-round-meta">{r.r1sel}/{r.r1}</div>
-              </div>
-              <div class="rc-round">
-                <div class="rc-round-h">R2</div>
-                <div class="rc-round-bar">
-                  <div class="rc-round-fill" style="width:{r.r2 ? (r.r2sel / r.r2) * 100 : 0}%"></div>
-                </div>
-                <div class="rc-round-meta">{r.r2sel}/{r.r2}</div>
-              </div>
-              {#if r.r3 > 0 || r.r3sel > 0}
-                <div class="rc-round">
-                  <div class="rc-round-h">R3</div>
-                  <div class="rc-round-bar">
-                    <div class="rc-round-fill" style="width:{r.r3 ? (r.r3sel / r.r3) * 100 : 0}%"></div>
-                  </div>
-                  <div class="rc-round-meta">{r.r3sel}/{r.r3}</div>
-                </div>
-              {/if}
-            </div>
+      <div class="card pad-lg analytics-block">
+        <div class="section-h" style="margin-bottom:18px">
+          <div class="title">
+            <h2>Conversion comparison</h2>
+            <span class="count">resumes → final stage</span>
           </div>
-        {/each}
+        </div>
+        <div class="conv-grid">
+          {#each roleCards as r, i (r.role)}
+            {@const finalSel = r.r3sel + r.r2sel + r.r1sel}
+            <div class="conv-row" in:fly={{ y: 6, delay: i * 50, duration: 360, easing: quintOut }}>
+              <div class="conv-role">
+                <span class="pill solid">{r.role}</span>
+                <span class="conv-conv mono">{r.conv}%</span>
+              </div>
+              <div class="conv-bar-stack">
+                <div class="conv-step" style="flex: {r.resumes || 1}" data-label="{r.resumes} resumes">
+                  <span class="cs-num">{r.resumes}</span>
+                  <span class="cs-lbl">resumes</span>
+                </div>
+                <div class="conv-step shortlist" style="flex: {r.selected || 0.01}" data-label="{r.selected} shortlisted">
+                  {#if r.selected}<span class="cs-num">{r.selected}</span><span class="cs-lbl">shortlist</span>{/if}
+                </div>
+                <div class="conv-step r1" style="flex: {r.r1sel || 0.01}" data-label="{r.r1sel} R1 selected">
+                  {#if r.r1sel}<span class="cs-num">{r.r1sel}</span><span class="cs-lbl">R1✓</span>{/if}
+                </div>
+                <div class="conv-step r2" style="flex: {r.r2sel || 0.01}" data-label="{r.r2sel} R2 selected">
+                  {#if r.r2sel}<span class="cs-num">{r.r2sel}</span><span class="cs-lbl">R2✓</span>{/if}
+                </div>
+                {#if r.r3 > 0 || r.r3sel > 0}
+                  <div class="conv-step r3" style="flex: {r.r3sel || 0.01}" data-label="{r.r3sel} R3 selected">
+                    {#if r.r3sel}<span class="cs-num">{r.r3sel}</span><span class="cs-lbl">R3✓</span>{/if}
+                  </div>
+                {/if}
+              </div>
+            </div>
+          {/each}
+        </div>
       </div>
     {/if}
 
+    <!-- Pipeline health donut + Top performing locations -->
     <div class="grid-2" style="margin-top:20px">
-      <div class="card pad">
-        <div class="row between" style="margin-bottom:14px">
-          <div class="serif" style="font-size:18px">Last 12 months · interview volume</div>
-          <span class="pill outline">{months.length} mo</span>
+      <div class="card pad-lg">
+        <div class="section-h" style="margin-bottom:14px">
+          <div class="title"><h2>Pipeline health</h2><span class="count">all activity outcomes</span></div>
         </div>
-        <Sparkline values={monthSeries.interviewed} color="var(--brand)" height={56} />
+        <div class="health-row">
+          <div class="health-donut">
+            <svg viewBox="0 0 120 120" width="160" height="160">
+              <circle cx="60" cy="60" r="48" fill="none" stroke="var(--surface-sunk)" stroke-width="14"/>
+              {#each donutSegments as seg}
+                <circle
+                  cx="60" cy="60" r="48"
+                  fill="none"
+                  stroke={seg.color}
+                  stroke-width="14"
+                  stroke-dasharray="{seg.arc} {DONUT_C}"
+                  stroke-dashoffset={seg.offset}
+                  transform="rotate(-90 60 60)"
+                  style="transition: stroke-dasharray 600ms var(--ease)"
+                />
+              {/each}
+              <text x="60" y="55" text-anchor="middle" class="hd-c-num">{pipelineHealthTotal.toLocaleString()}</text>
+              <text x="60" y="72" text-anchor="middle" class="hd-c-lbl">events</text>
+            </svg>
+          </div>
+          <div class="health-legend">
+            {#each healthLegendItems as item}
+              {@const val = pipelineHealth[item.key]}
+              {@const pct = pipelineHealthTotal ? Math.round((val / pipelineHealthTotal) * 100) : 0}
+              <div class="hl-row">
+                <span class="hl-swatch" style="background: {item.color}"></span>
+                <span class="hl-label">{item.label}</span>
+                <span class="hl-bar"><span style="width: {pct}%; background: {item.color}"></span></span>
+                <span class="hl-num mono">{val}</span>
+                <span class="hl-pct mono">{pct}%</span>
+              </div>
+            {/each}
+          </div>
+        </div>
       </div>
-      <div class="card pad">
-        <div class="row between" style="margin-bottom:14px">
-          <div class="serif" style="font-size:18px">Active states</div>
-          <span class="pill outline">{$planProgress.totals.states}</span>
+
+      <div class="card pad-lg">
+        <div class="section-h" style="margin-bottom:14px">
+          <div class="title"><h2>Top universities</h2><span class="count">by hire progress</span></div>
         </div>
-        <div class="state-pills">
-          {#each [...new Set($data.plan.map(p => p.state))] as st}
-            <span class="pill brand">{st}</span>
+        <div class="top-uni-list">
+          {#each topUniversities.slice(0, 8) as u, i (u.name + u.state)}
+            <div class="tu-row" in:fly={{ y: 4, delay: i * 30, duration: 320 }}>
+              <div class="tu-rank">{i + 1}</div>
+              <div class="grow" style="min-width:0">
+                <div class="tu-name">{u.name}</div>
+                <div class="tu-meta">{u.state} · {u.positions} positions · {u.hired} hired</div>
+              </div>
+              <div class="tu-bar"><span style="width: {u.progress}%"></span></div>
+              <div class="tu-pct mono">{u.progress}%</div>
+            </div>
+          {:else}
+            <div class="empty">No university progress yet.</div>
           {/each}
         </div>
+      </div>
+    </div>
+
+    <!-- Interview activity trend -->
+    <div class="card pad-lg" style="margin-top:20px">
+      <div class="section-h" style="margin-bottom:14px">
+        <div class="title">
+          <h2>Activity trend</h2>
+          <span class="count">last {months.length} months</span>
+        </div>
+        <div class="row gap-sm">
+          <span class="trend-key"><span class="tk-swatch" style="background:var(--brand)"></span>Interviewed</span>
+          <span class="trend-key"><span class="tk-swatch" style="background:var(--olive)"></span>Selected</span>
+        </div>
+      </div>
+      <InterviewChart data={months} height={220} color="var(--brand)" colorDeep="var(--brand-deep)" />
+    </div>
+
+    <!-- Active states pills -->
+    <div class="card pad" style="margin-top:20px">
+      <div class="section-h" style="margin-bottom:12px">
+        <div class="title"><h2>Active states</h2><span class="count">{$planProgress.totals.states}</span></div>
+      </div>
+      <div class="state-pills">
+        {#each [...new Set($data.plan.map(p => p.state))].sort() as st}
+          <span class="pill brand">{st}</span>
+        {/each}
       </div>
     </div>
   </section>
@@ -572,6 +692,111 @@
   .mt-row:hover { background: var(--surface-soft); }
 
   .state-pills { display: flex; flex-wrap: wrap; gap: 6px; }
+
+  /* ============== Conversion comparison ============== */
+  .analytics-block { margin-top: 20px; }
+  .conv-grid { display: flex; flex-direction: column; gap: 14px; }
+  .conv-row {
+    display: grid;
+    grid-template-columns: 110px 1fr;
+    align-items: center;
+    gap: 16px;
+  }
+  .conv-role { display: flex; align-items: center; gap: 8px; }
+  .conv-role .pill { font-weight: 700; font-size: 12px; }
+  .conv-conv { font-size: 12px; color: var(--brand-deep); font-weight: 700; }
+  .conv-bar-stack {
+    display: flex;
+    gap: 4px;
+    height: 64px;
+    min-width: 0;
+  }
+  .conv-step {
+    position: relative;
+    border-radius: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    min-width: 0;
+    background: var(--brand);
+    color: #fff;
+    transition: filter 200ms var(--ease);
+  }
+  .conv-step:hover { filter: brightness(1.08); }
+  .conv-step.shortlist { background: var(--brand-deep); }
+  .conv-step.r1 { background: var(--gold); color: var(--ink); }
+  .conv-step.r2 { background: var(--mauve); }
+  .conv-step.r3 { background: var(--olive); }
+  .conv-step .cs-num { font-family: var(--font-display); font-size: 20px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; }
+  .conv-step .cs-lbl { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; margin-top: 3px; opacity: .85; font-weight: 600; }
+
+  /* ============== Pipeline health ============== */
+  .health-row { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+  .health-donut { flex-shrink: 0; }
+  .hd-c-num { fill: var(--ink); font-family: var(--font-display); font-size: 24px; font-weight: 700; letter-spacing: -0.03em; }
+  .hd-c-lbl { fill: var(--ink-3); font-size: 9px; text-transform: uppercase; letter-spacing: .1em; font-weight: 600; }
+  .health-legend { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+  .hl-row {
+    display: grid;
+    grid-template-columns: 14px minmax(80px, max-content) 1fr 40px 40px;
+    gap: 10px;
+    align-items: center;
+    font-size: 12px;
+  }
+  .hl-swatch { width: 12px; height: 12px; border-radius: 3px; }
+  .hl-label { font-weight: 600; color: var(--ink); }
+  .hl-bar { background: var(--surface-sunk); height: 6px; border-radius: 99px; overflow: hidden; }
+  .hl-bar span { display: block; height: 100%; border-radius: 99px; transition: width 600ms var(--ease); }
+  .hl-num { font-weight: 700; color: var(--ink); text-align: right; }
+  .hl-pct { font-size: 11px; color: var(--ink-3); text-align: right; }
+
+  /* ============== Top universities list ============== */
+  .top-uni-list { display: flex; flex-direction: column; gap: 8px; }
+  .tu-row {
+    display: grid;
+    grid-template-columns: 28px minmax(0, 1fr) 100px 44px;
+    gap: 12px;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 10px;
+    transition: background var(--t-fast) var(--ease);
+  }
+  .tu-row:hover { background: var(--brand-soft-2); }
+  .tu-rank {
+    width: 24px; height: 24px;
+    border-radius: 50%;
+    background: var(--surface-sunk);
+    color: var(--ink-2);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    font-family: var(--font-mono);
+  }
+  .tu-row:nth-child(1) .tu-rank { background: var(--brand); color: #fff; }
+  .tu-row:nth-child(2) .tu-rank { background: var(--ink); color: var(--brand-soft); }
+  .tu-row:nth-child(3) .tu-rank { background: var(--gold); color: var(--ink); }
+  .tu-name {
+    font-weight: 700;
+    font-size: 13px;
+    color: var(--ink);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tu-meta { font-size: 11px; color: var(--ink-3); margin-top: 2px; font-weight: 500; }
+  .tu-bar { background: var(--surface-sunk); height: 6px; border-radius: 99px; overflow: hidden; }
+  .tu-bar span {
+    display: block; height: 100%;
+    background: linear-gradient(90deg, var(--olive) 0%, #4A5634 100%);
+    border-radius: 99px;
+    transition: width 600ms var(--ease);
+  }
+  .tu-pct { font-size: 11px; font-weight: 700; color: var(--ink); text-align: right; }
+
+  /* ============== Trend chart key ============== */
+  .trend-key { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--ink-2); }
+  .tk-swatch { width: 10px; height: 10px; border-radius: 3px; }
 
   /* ============== Locations tab ============== */
   .seg-btn {
