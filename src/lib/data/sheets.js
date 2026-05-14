@@ -175,14 +175,42 @@ function mergeCandidate(cand, src, kind) {
 }
 
 function finalizeCandidate(c) {
+  // Authoritative role assignment — application > details > most-advanced
+  // stage event. Without this, a candidate touched by an earlier-loaded
+  // legacy tab (e.g., BOA Resume column) keeps that BOA role even after
+  // they're selected at R3 in a different role's tab.
+  const normalizeRole = (r) => {
+    if (!r) return '';
+    const u = String(r).toUpperCase().trim();
+    if (u.startsWith('PMA')) return 'PMA';
+    if (u.startsWith('BOA')) return 'BOA';
+    if (u.startsWith('COS')) return 'COS';
+    if (u.startsWith('PM'))  return 'PM';
+    return u;
+  };
+  let resolvedRole = normalizeRole(c.application?.role) || normalizeRole(c.details?.role);
+  if (!resolvedRole) {
+    // Use role from the most-advanced stage event (highest STAGE_INDEX with a known role)
+    let best = -1;
+    for (const k of Object.keys(c.stages || {})) {
+      const ev = c.stages[k];
+      if (ev?.role && (STAGE_INDEX[k] ?? -1) > best) {
+        best = STAGE_INDEX[k] ?? -1;
+        resolvedRole = normalizeRole(ev.role);
+      }
+    }
+  }
+  if (resolvedRole) c.role = resolvedRole;
+
   // Determine current stage = highest STAGE_INDEX among populated stages.
-  // Resume-shortlist is derived from role-app `selectStatus`.
   const stageKeys = Object.keys(c.stages);
   stageKeys.sort((a, b) => (STAGE_INDEX[a] ?? -1) - (STAGE_INDEX[b] ?? -1));
   c.stageKeysPresent = stageKeys;
 
-  // Synthesize 'resumeShortlist' stage from role-app selects column
-  if (c.application?.selectStatus === 'selected' && !c.stages.resumeShortlist) {
+  // Synthesize 'resumeShortlist' from role-app select column. Match both
+  // 'select' (PM tab) and 'selected' (other tabs).
+  const appSel = (c.application?.selectStatus || '').toLowerCase();
+  if (/^(select|selected|shortlist)/.test(appSel) && !c.stages.resumeShortlist) {
     c.stages.resumeShortlist = {
       stage: 'resumeShortlist',
       status: 'Shortlisted',
