@@ -546,46 +546,69 @@
 
 {:else if tab === 'trends'}
   <section in:fly={{ y: 8, duration: 320 }}>
-    <div class="kpi-grid">
-      <div class="card pad">
-        <div class="muted lbl">Sourced</div>
-        <div class="serif big-num">{monthSeries.sourced.reduce((a,b)=>a+b,0).toLocaleString()}</div>
-        <Sparkline values={monthSeries.sourced} color="var(--brand)" height={48} />
+    <!-- Mini stat cards with sparklines -->
+    <div class="kpi-grid stagger" style="margin-bottom:20px">
+      <div class="card pad mini-trend">
+        <div class="lbl">Sourced</div>
+        <div class="big-num display">{monthSeries.sourced.reduce((a,b)=>a+b,0).toLocaleString()}</div>
+        <Sparkline values={monthSeries.sourced} color="var(--brand)" height={42} />
       </div>
-      <div class="card pad">
-        <div class="muted lbl">Interviewed</div>
-        <div class="serif big-num">{monthSeries.interviewed.reduce((a,b)=>a+b,0).toLocaleString()}</div>
-        <Sparkline values={monthSeries.interviewed} color="var(--gold)" height={48} />
+      <div class="card pad mini-trend">
+        <div class="lbl">Interviewed</div>
+        <div class="big-num display">{monthSeries.interviewed.reduce((a,b)=>a+b,0).toLocaleString()}</div>
+        <Sparkline values={monthSeries.interviewed} color="var(--gold)" height={42} />
       </div>
-      <div class="card pad">
-        <div class="muted lbl">Selected</div>
-        <div class="serif big-num">{monthSeries.selected.reduce((a,b)=>a+b,0).toLocaleString()}</div>
-        <Sparkline values={monthSeries.selected} color="var(--sage)" height={48} />
+      <div class="card pad mini-trend">
+        <div class="lbl">Selected</div>
+        <div class="big-num display">{monthSeries.selected.reduce((a,b)=>a+b,0).toLocaleString()}</div>
+        <Sparkline values={monthSeries.selected} color="var(--olive)" height={42} />
       </div>
-      <div class="card pad">
-        <div class="muted lbl">Joined</div>
-        <div class="serif big-num">{monthSeries.joined.reduce((a,b)=>a+b,0).toLocaleString()}</div>
-        <Sparkline values={monthSeries.joined} color="var(--plum)" height={48} />
+      <div class="card pad mini-trend">
+        <div class="lbl">Joined</div>
+        <div class="big-num display">{monthSeries.joined.reduce((a,b)=>a+b,0).toLocaleString()}</div>
+        <Sparkline values={monthSeries.joined} color="var(--mauve)" height={42} />
       </div>
     </div>
 
-    <div class="card pad">
-      <div class="section-h"><div class="title"><h2>Monthly breakdown</h2><span class="count">{months.length} months</span></div></div>
-      <div class="month-table">
-        <div class="mt-head">
-          <div>Month</div><div>Sourced</div><div>Interviewed</div><div>Selected</div><div>Joined</div>
+    <!-- Big interview trend chart -->
+    <div class="card pad-lg" style="margin-bottom:20px">
+      <div class="section-h" style="margin-bottom:14px">
+        <div class="title">
+          <h2>Interview activity over time</h2>
+          <span class="count">{months.length} {months.length === 1 ? 'month' : 'months'}</span>
         </div>
-        {#each months as m}
-          <div class="mt-row">
-            <div class="mono">{m.month}</div>
-            <div>{m.sourced}</div>
-            <div>{m.interviewed}</div>
-            <div>{m.selected}</div>
-            <div>{m.joined}</div>
+      </div>
+      <InterviewChart data={months} height={260} color="var(--brand)" colorDeep="var(--brand-deep)" />
+    </div>
+
+    <!-- Monthly breakdown table — proper DGrid alignment -->
+    <div class="card pad-lg">
+      <div class="section-h" style="margin-bottom:14px">
+        <div class="title"><h2>Monthly breakdown</h2><span class="count">all metrics, by month</span></div>
+      </div>
+      <div class="dgrid-wrap">
+        <div class="dgrid" style="--cols: 110px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr)">
+          <div class="dgrid-row head">
+            <div class="dcell">Month</div>
+            <div class="dcell num">Sourced</div>
+            <div class="dcell num">Interviewed</div>
+            <div class="dcell num">Selected</div>
+            <div class="dcell num">Joined</div>
           </div>
-        {:else}
-          <div class="empty">No date-stamped activity yet.</div>
-        {/each}
+          {#each months as m, i}
+            <div class="dgrid-row" in:fly={{ y: 4, delay: Math.min(i, 12) * 25, duration: 280 }}>
+              <div class="dcell mono"><span class="truncate">{m.month}</span></div>
+              <div class="dcell num"><span class="trend-cell brand">{m.sourced || '—'}</span></div>
+              <div class="dcell num"><span class="trend-cell gold">{m.interviewed || '—'}</span></div>
+              <div class="dcell num"><span class="trend-cell olive">{m.selected || '—'}</span></div>
+              <div class="dcell num"><span class="trend-cell mauve">{m.joined || '—'}</span></div>
+            </div>
+          {:else}
+            <div class="dgrid-row">
+              <div class="dcell" style="grid-column: 1 / -1; justify-content: center; color: var(--muted)">No date-stamped activity yet.</div>
+            </div>
+          {/each}
+        </div>
       </div>
     </div>
   </section>
@@ -797,6 +820,27 @@
   /* ============== Trend chart key ============== */
   .trend-key { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--ink-2); }
   .tk-swatch { width: 10px; height: 10px; border-radius: 3px; }
+
+  /* ============== Trends tab ============== */
+  .mini-trend .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--ink-3); }
+  .mini-trend .big-num { font-size: 32px; line-height: 1; font-weight: 700; color: var(--ink); margin: 6px 0 12px; letter-spacing: -0.02em; }
+
+  .trend-cell {
+    display: inline-block;
+    min-width: 36px;
+    padding: 3px 8px;
+    border-radius: 99px;
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    font-weight: 700;
+    text-align: right;
+    color: var(--ink-2);
+    background: var(--surface-sunk);
+  }
+  .trend-cell.brand { background: var(--brand-soft-2); color: var(--brand-deep); }
+  .trend-cell.gold { background: var(--gold-soft); color: #6E5022; }
+  .trend-cell.olive { background: var(--olive-soft); color: #4A5634; }
+  .trend-cell.mauve { background: var(--mauve-soft); color: var(--mauve-deep); }
 
   /* ============== Locations tab ============== */
   .seg-btn {
