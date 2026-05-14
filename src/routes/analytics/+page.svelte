@@ -10,6 +10,8 @@
   import Donut from '$lib/components/Donut.svelte';
   import Funnel from '$lib/components/Funnel.svelte';
   import InterviewChart from '$lib/components/InterviewChart.svelte';
+  import MonthlyBarChart from '$lib/components/MonthlyBarChart.svelte';
+  import RoleMonthHeatmap from '$lib/components/RoleMonthHeatmap.svelte';
   import { base } from '$app/paths';
 
   $: roleStats = $data.roleStats || {};
@@ -505,19 +507,31 @@
       </div>
     </div>
 
-    <!-- Interview activity trend -->
+    <!-- Activity trend — multi-metric grouped bars -->
     <div class="card pad-lg" style="margin-top:20px">
       <div class="section-h" style="margin-bottom:14px">
         <div class="title">
-          <h2>Activity trend</h2>
-          <span class="count">last {months.length} months</span>
+          <h2>Monthly activity</h2>
+          <span class="count">grouped by metric · last {months.length} months</span>
         </div>
         <div class="row gap-sm">
           <span class="trend-key"><span class="tk-swatch" style="background:var(--brand)"></span>Interviewed</span>
           <span class="trend-key"><span class="tk-swatch" style="background:var(--olive)"></span>Selected</span>
+          <span class="trend-key"><span class="tk-swatch" style="background:var(--gold)"></span>Sourced</span>
         </div>
       </div>
-      <InterviewChart data={months} height={220} color="var(--brand)" colorDeep="var(--brand-deep)" />
+      <MonthlyBarChart data={months} height={280} />
+    </div>
+
+    <!-- Role × Month activity heatmap -->
+    <div class="card pad-lg" style="margin-top:20px">
+      <div class="section-h" style="margin-bottom:14px">
+        <div class="title">
+          <h2>Activity heatmap</h2>
+          <span class="count">role × month — interview events with dates</span>
+        </div>
+      </div>
+      <RoleMonthHeatmap activities={$data.activities} />
     </div>
 
     <!-- Active states pills -->
