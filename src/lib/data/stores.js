@@ -9,9 +9,14 @@ import {
 } from './derive.js';
 import { loadConfig, saveConfig, clearConfig } from './storage.js';
 
+// The portal auto-connects to this sheet for ALL visitors so they see data
+// immediately — no "Connect your sheets" prompt. Anyone can override via
+// the Settings page; their override is stored in localStorage (browser-local).
+export const DEFAULT_SHEET_URL = 'https://docs.google.com/spreadsheets/d/1NShjSPanzLulrNAk0grZgu94ibEO31lYJKupMjkrZJY/edit?usp=sharing';
+
 // ----- Config (single sheet URL + refresh) -----
 export const config = writable({
-  sheetUrl: '',
+  sheetUrl: DEFAULT_SHEET_URL,
   refreshSec: 300,
   autoRefresh: true,
   lastSyncedAt: null,
@@ -65,25 +70,22 @@ let refreshTimer = null;
 
 export async function bootstrap() {
   const cfg = loadConfig();
+  // Resolve URL: user override (saved or migrated from old keys) → DEFAULT
+  let sheetUrl = DEFAULT_SHEET_URL;
   if (cfg) {
-    // Migration: old config used masterUrl / trackerUrl / rosterUrl separately.
-    // Use whichever non-empty URL we find, preferring trackerUrl (the new
-    // unified sheet), then masterUrl, then rosterUrl.
-    let sheetUrl = cfg.sheetUrl || '';
-    if (!sheetUrl) sheetUrl = cfg.trackerUrl || cfg.masterUrl || cfg.rosterUrl || '';
-    config.set({
-      sheetUrl,
-      refreshSec: cfg.refreshSec || 300,
-      autoRefresh: cfg.autoRefresh !== false,
-      lastSyncedAt: cfg.lastSyncedAt || null,
-    });
-    // Persist migrated form
-    saveConfig(get(config));
+    sheetUrl = cfg.sheetUrl
+      || cfg.trackerUrl || cfg.masterUrl || cfg.rosterUrl
+      || DEFAULT_SHEET_URL;
   }
-  if (get(config).sheetUrl) {
-    await refreshAll();
-    startAutoRefresh();
-  }
+  config.set({
+    sheetUrl,
+    refreshSec: cfg?.refreshSec || 300,
+    autoRefresh: cfg?.autoRefresh !== false,
+    lastSyncedAt: cfg?.lastSyncedAt || null,
+  });
+  // Always sync (we always have a URL now)
+  await refreshAll();
+  startAutoRefresh();
 }
 
 export function startAutoRefresh() {
@@ -103,14 +105,18 @@ export function setConfig(patch) {
   startAutoRefresh();
 }
 
-export function disconnect() {
+// "Disconnect" actually resets to the default sheet (the portal can never
+// truly be empty — it always falls back to the default ProgramOps sheet).
+export async function disconnect() {
   stopAutoRefresh();
   clearConfig();
-  config.set({ sheetUrl: '', refreshSec: 300, autoRefresh: true, lastSyncedAt: null });
+  config.set({ sheetUrl: DEFAULT_SHEET_URL, refreshSec: 300, autoRefresh: true, lastSyncedAt: null });
   tabSummary.set([]);
   data.set({ candidates: [], activities: [], plan: [], planRich: [], roleStats: {}, masterHeaders: [] });
   syncState.set({ status: 'idle', message: '', error: null });
-  toast('Disconnected.', 'info');
+  toast('Reset to default sheet.', 'info');
+  await refreshAll();
+  startAutoRefresh();
 }
 
 export async function refreshAll() {

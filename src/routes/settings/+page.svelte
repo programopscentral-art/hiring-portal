@@ -1,7 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
-  import { config, setConfig, refreshAll, disconnect, syncState, tabSummary, toast } from '$lib/data/stores.js';
+  import { config, setConfig, refreshAll, disconnect, syncState, tabSummary, toast, DEFAULT_SHEET_URL } from '$lib/data/stores.js';
 
   let sheetUrl = '';
   let refreshSec = 300;
@@ -24,11 +24,13 @@
     if ($syncState.status === 'ok') toast('Connected and synced.', 'success');
   }
 
-  function onDisconnect() {
-    if (!confirm('Disconnect and clear cached data?')) return;
-    disconnect();
-    sheetUrl = '';
+  async function onDisconnect() {
+    if (!confirm('Reset to the default ProgramOps hiring sheet?')) return;
+    await disconnect();
+    sheetUrl = DEFAULT_SHEET_URL;
   }
+
+  $: isUsingDefault = (sheetUrl || '').trim() === DEFAULT_SHEET_URL.trim();
 
   function downloadAppsScript() {
     const text = `/**
@@ -83,10 +85,22 @@ function out_(text) {
 
 <section class="grid-2">
   <div class="card pad-lg">
-    <h2 class="serif" style="font-size:22px;margin-bottom:6px">Connect your sheet</h2>
-    <p class="muted" style="font-size:13px;margin-bottom:24px">
-      Paste a single Google Sheet URL. The portal auto-discovers every tab, classifies each one (summary stats / hiring plan / role tracker / candidate roster), and merges all the data. Any changes you make in the sheet — including new tabs or new columns — reflect on the portal at the next sync.
+    <h2 class="serif" style="font-size:22px;margin-bottom:6px">Sheet source</h2>
+    <p class="muted" style="font-size:13px;margin-bottom:18px">
+      The portal is <strong style="color:var(--ink)">auto-connected</strong> to the ProgramOps hiring sheet — every visitor sees live data on first load. The portal auto-discovers all tabs, classifies each (summary stats / hiring plan / role tracker / candidate roster), and merges them. Sheet changes (rows, columns, new tabs) reflect on the next sync.
     </p>
+
+    {#if isUsingDefault}
+      <div class="card soft" style="padding:12px 14px;margin-bottom:18px;display:flex;align-items:center;gap:10px;border-color:var(--olive);background:var(--olive-soft)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4A5634" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
+        <div style="font-size:13px;color:#3A4426;font-weight:600">Using the default ProgramOps hiring sheet.</div>
+      </div>
+    {:else}
+      <div class="card soft" style="padding:12px 14px;margin-bottom:18px;display:flex;align-items:center;gap:10px;border-color:var(--brand);background:var(--brand-soft)">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--brand-deep)" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+        <div style="font-size:13px;color:var(--brand-deep);font-weight:600">Using a custom sheet URL — only this browser sees this override.</div>
+      </div>
+    {/if}
 
     <div class="field">
       <label for="sheetUrl">Sheet URL</label>
@@ -117,12 +131,14 @@ function out_(text) {
     </div>
 
     <div class="row gap" style="margin-top:24px;flex-wrap:wrap">
-      <button class="btn brand" on:click={connect}>{$config.sheetUrl ? 'Update connection' : 'Connect'}</button>
+      <button class="btn brand" on:click={connect}>
+        {isUsingDefault ? 'Re-sync' : 'Update sheet URL'}
+      </button>
       <button class="btn" on:click={() => refreshAll()} disabled={$syncState.status === 'syncing'}>
         {$syncState.status === 'syncing' ? 'Syncing…' : 'Refresh now'}
       </button>
-      {#if $config.sheetUrl}
-        <button class="btn danger" on:click={onDisconnect}>Disconnect</button>
+      {#if !isUsingDefault}
+        <button class="btn danger" on:click={onDisconnect}>Reset to default</button>
       {/if}
     </div>
 

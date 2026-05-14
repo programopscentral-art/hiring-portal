@@ -15,7 +15,9 @@
   import { base } from '$app/paths';
 
   $: hasData = $data.candidates.length || $data.activities.length || $data.plan.length;
-  $: notConnected = !$config.sheetUrl;
+  // The portal is auto-connected to a default sheet — only show "no data"
+  // states based on whether the fetch returned anything.
+  $: notConnected = false;
 
   let activeUniversity = '';
 
