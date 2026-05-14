@@ -4,7 +4,10 @@
   import StatusPill from '$lib/components/StatusPill.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
 
-  let activeStage = 'r1';
+  // Default active stage = first non-empty stage in funnel
+  $: defaultStage = $funnel.find(s => s.count > 0)?.key || 'sourced';
+  let activeStage = '';
+  $: if (!activeStage) activeStage = defaultStage;
   let roleFilter = '';
 
   $: candidatesAtStage = ($dataset.candidates || []).filter(c => {

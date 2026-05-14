@@ -175,12 +175,42 @@ function mergeCandidate(cand, src, kind) {
 }
 
 function finalizeCandidate(c) {
-  // Determine current stage = highest STAGE_INDEX among populated stages,
-  // with role-app counting as 'sourced' if no later stage exists.
+  // Determine current stage = highest STAGE_INDEX among populated stages.
+  // Resume-shortlist is derived from role-app `selectStatus`.
   const stageKeys = Object.keys(c.stages);
   stageKeys.sort((a, b) => (STAGE_INDEX[a] ?? -1) - (STAGE_INDEX[b] ?? -1));
   c.stageKeysPresent = stageKeys;
 
+  // Synthesize 'resumeShortlist' stage from role-app selects column
+  if (c.application?.selectStatus === 'selected' && !c.stages.resumeShortlist) {
+    c.stages.resumeShortlist = {
+      stage: 'resumeShortlist',
+      status: 'Shortlisted',
+      decision: 'selected',
+      parsedDate: c.application.timestampDate,
+      panelist: c.application.shortlistedBy || '',
+      stageData: {},
+    };
+    if (!stageKeys.includes('resumeShortlist')) stageKeys.push('resumeShortlist');
+  }
+
+  // Synthesize 'hired' stage from R3 selected
+  const r3 = c.stages.r3;
+  if (r3 && r3.decision === 'selected' && !c.stages.hired) {
+    c.stages.hired = {
+      stage: 'hired',
+      status: r3.status || 'Selected',
+      decision: 'hired',
+      parsedDate: r3.parsedDate,
+      panelist: r3.panelist || '',
+      stageData: {},
+    };
+    if (!stageKeys.includes('hired')) stageKeys.push('hired');
+  }
+
+  // Recompute sort + latest stage
+  stageKeys.sort((a, b) => (STAGE_INDEX[a] ?? -1) - (STAGE_INDEX[b] ?? -1));
+  c.stageKeysPresent = stageKeys;
   let latestKey = stageKeys[stageKeys.length - 1];
   if (!latestKey) latestKey = c.application ? 'sourced' : '';
 
@@ -193,7 +223,7 @@ function finalizeCandidate(c) {
     c.currentStageDate = c.application.timestampDate;
   }
 
-  // Final decision: rejection stage wins, then 'hired' if joined/offer, else active
+  // Final decision: rejection wins; then hired if hired/joined; else active
   let finalDecision = 'active';
   let rejStage = '', rejReason = '';
   for (const k of stageKeys) {

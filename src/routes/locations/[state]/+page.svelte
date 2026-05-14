@@ -120,25 +120,6 @@
     </div>
   </section>
 
-  {#if byUni.length}
-    <section class="card pad-lg" style="margin-top:20px">
-      <h2 class="serif" style="font-size:22px;margin-bottom:14px">Universities & companies in {state}</h2>
-      <div class="uni-list">
-        {#each byUni as u}
-          <div class="uni-row">
-            <div class="uni-name">{u.name}</div>
-            <div class="uni-bar"><div class="uni-fill" style="width:{Math.max(6, (u.count / byUni[0].count) * 100)}%"></div></div>
-            <div class="uni-stats mono">
-              <span>{fmt(u.count)}</span>
-              {#if u.hired}<span class="ok">· {u.hired} hired</span>{/if}
-              {#if u.rejected}<span class="bad">· {u.rejected} rejected</span>{/if}
-            </div>
-          </div>
-        {/each}
-      </div>
-    </section>
-  {/if}
-
   <section class="card pad-lg" style="margin-top:20px">
     <h2 class="serif" style="font-size:22px;margin-bottom:14px">All candidates from {state} ({fmt(candidates.length)})</h2>
     <div class="dgrid" style="--cols:6">

@@ -5,19 +5,34 @@
 import { parseCSV, trim2D } from './csv.js';
 
 // ---------- Canonical stage ladder ----------
+// Pruned to stages where the source sheets actually have data. Stages with
+// zero records across both sheets (BSF, BSC, HM Review, TI, Assignment,
+// Assessment, HR1, EmpVerify, HR2, ES, SalNeg, BGV, Offer, Joined are all
+// empty templates in the new sheet) are intentionally excluded from the
+// primary funnel to avoid showing 14 ghost columns.
 export const STAGES = [
-  { key: 'sourced',     label: 'Sourced',                short: 'SRC' },
+  { key: 'sourced',         label: 'Applied',             short: 'APP' },
+  { key: 'resumeShortlist', label: 'Resume Shortlisted',  short: 'RES' },
+  { key: 'r1',              label: 'Interview R1',        short: 'R1' },
+  { key: 'r2',              label: 'Interview R2',        short: 'R2' },
+  { key: 'r3',              label: 'Interview R3',        short: 'R3' },
+  { key: 'hired',           label: 'Final Selection',     short: 'HIRE' },
+];
+export const STAGE_KEYS = STAGES.map(s => s.key);
+export const STAGE_INDEX = Object.fromEntries(STAGES.map((s, i) => [s.key, i]));
+
+// All schema-defined stages (for Candidate 360 / Raw views). The portal
+// fetches these tabs even though most are empty — when data arrives, the
+// candidate 360 page surfaces them automatically.
+export const ALL_STAGES = [
+  ...STAGES,
   { key: 'bsf',         label: 'BSF Form',               short: 'BSF' },
   { key: 'bsc',         label: 'Basic Screening Call',   short: 'BSC' },
   { key: 'hmReview',    label: 'HM Review',              short: 'HM' },
   { key: 'ti',          label: 'Telephonic Interview',   short: 'TI' },
   { key: 'assignment',  label: 'Assignment',             short: 'ASGN' },
   { key: 'assessment',  label: 'Assessment',             short: 'ASSM' },
-  { key: 'r1',          label: 'Interview R1',           short: 'R1' },
-  { key: 'r2',          label: 'Interview R2',           short: 'R2' },
-  { key: 'r3',          label: 'Interview R3',           short: 'R3' },
   { key: 'hr1',         label: 'HR Round 1',             short: 'HR1' },
-  { key: 'empVerify',   label: 'Employee Verification',  short: 'EMV' },
   { key: 'hr2',         label: 'HR Round 2',             short: 'HR2' },
   { key: 'es',          label: 'ES Round',               short: 'ES' },
   { key: 'salNeg',      label: 'Salary Negotiation',     short: 'SAL' },
@@ -25,8 +40,6 @@ export const STAGES = [
   { key: 'offer',       label: 'Offer Letter',           short: 'OFR' },
   { key: 'joined',      label: 'Joined',                 short: 'JOIN' },
 ];
-export const STAGE_KEYS = STAGES.map(s => s.key);
-export const STAGE_INDEX = Object.fromEntries(STAGES.map((s, i) => [s.key, i]));
 
 export const ROLES = ['PMA', 'PM', 'COS', 'BOA'];
 

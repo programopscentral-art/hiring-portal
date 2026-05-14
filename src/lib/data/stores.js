@@ -80,14 +80,19 @@ export const filteredCandidates = derived(
   }
 );
 
-// Funnel — count of candidates at each stage of the pipeline
+// Funnel — count of candidates who reached each stage. A candidate reaches
+// stage S if they have a populated stages[S] entry OR any later stage's
+// entry (since reaching a later stage implies they passed earlier ones).
 export const funnel = derived(dataset, $d => {
   const counts = Object.fromEntries(STAGE_KEYS.map(k => [k, 0]));
   for (const c of $d.candidates) {
-    // Count candidate at every stage <= their current stage
-    const maxIdx = STAGE_INDEX[c.currentStage] ?? -1;
-    if (maxIdx >= 0) {
-      for (let i = 0; i <= maxIdx; i++) counts[STAGE_KEYS[i]]++;
+    // Sourced = every candidate is at least sourced
+    counts.sourced++;
+    // For other stages: count if candidate has a stage entry AT or ABOVE this stage
+    const reached = new Set(Object.keys(c.stages || {}));
+    const maxReachedIdx = Math.max(-1, ...[...reached].map(k => STAGE_INDEX[k] ?? -1));
+    for (let i = 1; i < STAGE_KEYS.length; i++) {
+      if (maxReachedIdx >= i) counts[STAGE_KEYS[i]]++;
     }
   }
   const total = counts.sourced || $d.candidates.length;
@@ -101,15 +106,15 @@ export const funnel = derived(dataset, $d => {
 // Stage matrix: role × stage counts
 export const stageMatrix = derived(dataset, $d => {
   const m = {};
-  for (const r of ROLES) {
-    m[r] = Object.fromEntries(STAGE_KEYS.map(k => [k, 0]));
-  }
+  for (const r of ROLES) m[r] = Object.fromEntries(STAGE_KEYS.map(k => [k, 0]));
   for (const c of $d.candidates) {
     const role = roleOf(c);
     if (!m[role]) continue;
-    const maxIdx = STAGE_INDEX[c.currentStage] ?? -1;
-    if (maxIdx >= 0) {
-      for (let i = 0; i <= maxIdx; i++) m[role][STAGE_KEYS[i]]++;
+    m[role].sourced++;
+    const reached = new Set(Object.keys(c.stages || {}));
+    const maxReachedIdx = Math.max(-1, ...[...reached].map(k => STAGE_INDEX[k] ?? -1));
+    for (let i = 1; i < STAGE_KEYS.length; i++) {
+      if (maxReachedIdx >= i) m[role][STAGE_KEYS[i]]++;
     }
   }
   return m;
@@ -209,21 +214,35 @@ export const bySource = derived(dataset, $d => {
   return arr.sort((a, b) => b.total - a.total);
 });
 
-// Panelists — by name across all stages
+// Panelists — by name across all stages. Falls back to legacy events when
+// new-sheet panelist columns are empty.
 export const byPanelist = derived(dataset, $d => {
   const map = new Map();
-  for (const ev of $d.stageEvents) {
-    const p = ev.panelist;
-    if (!p) continue;
+  const add = (p, stage, decision) => {
+    if (!p) return;
     if (!map.has(p)) map.set(p, { panelist: p, interviews: 0, selected: 0, rejected: 0, byStage: {} });
     const m = map.get(p);
     m.interviews++;
-    if (ev.decision === 'selected') m.selected++;
-    else if (ev.decision === 'rejected') m.rejected++;
-    m.byStage[ev.stage] = (m.byStage[ev.stage] || 0) + 1;
+    if (decision === 'selected') m.selected++;
+    else if (decision === 'rejected') m.rejected++;
+    m.byStage[stage] = (m.byStage[stage] || 0) + 1;
+  };
+  for (const ev of $d.stageEvents || []) {
+    add(ev.panelist, ev.stage, ev.decision);
+  }
+  // Legacy: shortlister column in role-app tabs ("Shortlisted by")
+  for (const app of $d.applications || []) {
+    if (app.shortlistedBy) add(app.shortlistedBy, 'resumeShortlist', classifyAppDecision(app.selectStatus));
   }
   return [...map.values()].sort((a, b) => b.interviews - a.interviews);
 });
+function classifyAppDecision(s) {
+  if (!s) return '';
+  const x = String(s).toLowerCase();
+  if (x.includes('select')) return 'selected';
+  if (x.includes('reject')) return 'rejected';
+  return '';
+}
 
 // Rejection heatmap — stage × reason
 export const rejectionMatrix = derived(dataset, $d => {
