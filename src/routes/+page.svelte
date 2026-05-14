@@ -1,16 +1,29 @@
 <script>
   import { base } from '$app/paths';
   import StatCard from '$lib/components/StatCard.svelte';
-  import Funnel from '$lib/components/Funnel.svelte';
+  import RoleStackedFunnel from '$lib/components/RoleStackedFunnel.svelte';
+  import Donut from '$lib/components/Donut.svelte';
   import MonthlyBarChart from '$lib/components/MonthlyBarChart.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import StatusPill from '$lib/components/StatusPill.svelte';
   import {
-    dataset, kpis, funnel, roleStats, monthlyVolume, byState, bySource, recentActivity, syncState,
-    STAGES, ROLES,
+    dataset, kpis, stageMatrix, roleStats, monthlyVolume, byState, bySource, recentActivity, syncState,
+    planByRole, STAGES, ROLES,
   } from '$lib/data/stores.js';
 
   function fmt(n) { return (n || 0).toLocaleString(); }
+
+  // Build stacked-funnel data: per-stage counts split by role
+  $: stackedStages = STAGES.map(s => ({
+    ...s,
+    byRole: Object.fromEntries(ROLES.map(r => [r, $stageMatrix[r]?.[s.key] || 0])),
+  })).filter(s => Object.values(s.byRole).some(v => v > 0));
+
+  $: decisionSegments = [
+    { label: 'Active in pipeline', value: $kpis.active, color: 'var(--brand)' },
+    { label: 'Hired',              value: $kpis.hired,  color: 'var(--olive)' },
+    { label: 'Rejected',           value: $kpis.rejected, color: 'var(--bad)' },
+  ];
 </script>
 
 <svelte:head><title>Overview · Hiring Portal</title></svelte:head>
@@ -37,36 +50,48 @@
 </section>
 
 <section class="row gap" style="margin-top:24px;align-items:flex-start">
-  <div class="card pad-lg" style="flex:1;min-width:0">
+  <div class="card pad-lg" style="flex:1.4;min-width:0">
     <div class="row between" style="align-items:center;margin-bottom:14px">
-      <h2 class="serif" style="font-size:22px">Pipeline funnel</h2>
+      <h2 class="serif" style="font-size:22px">Pipeline funnel · by role</h2>
       <a class="btn ghost sm" href="{base}/pipeline">View pipeline →</a>
     </div>
-    {#if $funnel.length && $funnel[0].count > 0}
-      <Funnel stages={$funnel.map(s => ({ stage: s.label, count: s.count }))} accent="brand" />
+    {#if stackedStages.length}
+      <RoleStackedFunnel stages={stackedStages} />
     {:else}
       <EmptyState title="Funnel will populate after sync." body="Once candidates flow through stages, you'll see the carry-through chart here." />
     {/if}
   </div>
 
-  <div class="card pad-lg" style="width:380px;flex-shrink:0">
-    <h2 class="serif" style="font-size:22px;margin-bottom:14px">By role</h2>
-    <div class="roles">
-      {#each ROLES as r}
-        {@const s = $roleStats[r] || { total:0, active:0, hired:0, rejected:0 }}
-        <a class="role-row" href="{base}/roles/{r}">
-          <div class="role-pill {r.toLowerCase()}">{r}</div>
-          <div class="grow">
-            <div class="role-total mono">{fmt(s.total)}</div>
-            <div class="role-meta muted">
-              <span class="ok">{fmt(s.active)} active</span> ·
-              <span>{fmt(s.hired)} hired</span> ·
-              <span>{fmt(s.rejected)} rejected</span>
+  <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:14px">
+    <div class="card pad-lg">
+      <h2 class="serif" style="font-size:18px;margin-bottom:14px">Pipeline status</h2>
+      {#if $kpis.total}
+        <Donut segments={decisionSegments} centerValue={fmt($kpis.total)} centerLabel="candidates" size={160} stroke={24} />
+      {:else}
+        <EmptyState title="No data yet." />
+      {/if}
+    </div>
+
+    <div class="card pad-lg">
+      <h2 class="serif" style="font-size:18px;margin-bottom:14px">By role</h2>
+      <div class="roles">
+        {#each ROLES as r}
+          {@const s = $roleStats[r] || { total:0, active:0, hired:0, rejected:0 }}
+          {@const planned = $planByRole[r]?.positions || 0}
+          <a class="role-row" href="{base}/roles/{r}">
+            <div class="role-pill {r.toLowerCase()}">{r}</div>
+            <div class="grow">
+              <div class="role-total mono">{fmt(s.total)}</div>
+              <div class="role-meta muted">
+                <span class="ok">{fmt(s.active)} active</span> ·
+                <span>{fmt(s.hired)} hired</span>
+                {#if planned}· <span class="planned">{fmt(planned)} planned</span>{/if}
+              </div>
             </div>
-          </div>
-          <div class="arrow">→</div>
-        </a>
-      {/each}
+            <div class="arrow">→</div>
+          </a>
+        {/each}
+      </div>
     </div>
   </div>
 </section>
@@ -191,6 +216,7 @@
   .role-total { font-size: 18px; font-weight: 800; color: var(--ink); }
   .role-meta { font-size: 11px; margin-top: 2px; }
   .role-meta .ok { color: var(--ok); font-weight: 600; }
+  .role-meta .planned { color: var(--gold-deep, #8E6B36); font-weight: 700; }
   .arrow { color: var(--ink-3); font-size: 16px; }
 
   .state-list { display: flex; flex-direction: column; gap: 4px; }

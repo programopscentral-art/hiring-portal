@@ -1,41 +1,91 @@
 <script>
-  // Compact donut chart
-  export let value = 0;
-  export let max = 100;
-  export let size = 120;
-  export let stroke = 12;
-  export let color = 'var(--brand)';
-  export let track = 'var(--surface-sunk)';
-  export let label = '';
-  export let sublabel = '';
+  // segments: [{ label, value, color }]
+  export let segments = [];
+  export let size = 180;
+  export let stroke = 28;
+  export let centerLabel = '';
+  export let centerValue = '';
 
-  $: pct = max ? Math.min(1, Math.max(0, value / max)) : 0;
-  $: r = (size - stroke) / 2;
-  $: c = 2 * Math.PI * r;
-  $: dash = c * pct;
+  $: total = segments.reduce((s, x) => s + (x.value || 0), 0);
+  $: radius = (size - stroke) / 2;
+  $: cx = size / 2;
+  $: cy = size / 2;
+  $: circumference = 2 * Math.PI * radius;
+
+  $: layout = (() => {
+    let running = 0;
+    return segments.map((s) => {
+      const frac = total ? (s.value || 0) / total : 0;
+      const dash = frac * circumference;
+      const offset = -running * circumference;
+      running += frac;
+      return { ...s, dash, gap: circumference - dash, offset, pct: frac };
+    });
+  })();
 </script>
 
-<div class="donut" style="width:{size}px;height:{size}px">
+<div class="donut">
   <svg width={size} height={size} viewBox="0 0 {size} {size}">
-    <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={track} stroke-width={stroke} />
-    <circle
-      cx={size/2} cy={size/2} r={r}
-      fill="none" stroke={color} stroke-width={stroke}
-      stroke-dasharray="{dash} {c}"
-      stroke-linecap="round"
-      transform="rotate(-90 {size/2} {size/2})"
-      style="transition: stroke-dasharray 800ms var(--ease)"
-    />
+    <circle cx={cx} cy={cy} r={radius} fill="none" stroke="var(--surface-sunk)" stroke-width={stroke} />
+    {#each layout as seg}
+      <circle
+        cx={cx} cy={cy} r={radius} fill="none"
+        stroke={seg.color}
+        stroke-width={stroke}
+        stroke-dasharray="{seg.dash} {seg.gap}"
+        stroke-dashoffset={seg.offset}
+        transform="rotate(-90 {cx} {cy})"
+        style="transition: stroke-dasharray 600ms var(--ease)"
+      />
+    {/each}
+    <text x={cx} y={cy - 6} text-anchor="middle" class="d-val">{centerValue || total.toLocaleString()}</text>
+    {#if centerLabel}
+      <text x={cx} y={cy + 14} text-anchor="middle" class="d-lbl">{centerLabel}</text>
+    {/if}
   </svg>
-  <div class="label">
-    <div class="serif big">{label}</div>
-    {#if sublabel}<div class="muted sub">{sublabel}</div>{/if}
+
+  <div class="legend">
+    {#each layout as seg}
+      <div class="leg-row">
+        <span class="sw" style="background: {seg.color}"></span>
+        <span class="lbl">{seg.label}</span>
+        <span class="val mono">{seg.value.toLocaleString()}</span>
+        <span class="pct mono">{Math.round(seg.pct * 100)}%</span>
+      </div>
+    {/each}
   </div>
 </div>
 
 <style>
-  .donut { position: relative; display: inline-block; }
-  .label { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
-  .big { font-size: 24px; line-height: 1; }
-  .sub { font-size: 10px; text-transform: uppercase; letter-spacing: .08em; margin-top: 4px; }
+  .donut { display: flex; align-items: center; gap: 24px; }
+  svg { flex-shrink: 0; }
+  .d-val {
+    font-family: var(--font-display);
+    font-size: 32px;
+    font-weight: 700;
+    fill: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .d-lbl {
+    font-size: 10px;
+    font-weight: 700;
+    fill: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: .08em;
+  }
+  .legend { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 0; }
+  .leg-row {
+    display: grid;
+    grid-template-columns: 14px 1fr 60px 50px;
+    gap: 10px;
+    align-items: center;
+    padding: 4px 0;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 12.5px;
+  }
+  .leg-row:last-child { border-bottom: 0; }
+  .sw { width: 12px; height: 12px; border-radius: 3px; }
+  .lbl { color: var(--ink); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .val { text-align: right; font-weight: 700; }
+  .pct { text-align: right; color: var(--ink-3); font-size: 11px; }
 </style>

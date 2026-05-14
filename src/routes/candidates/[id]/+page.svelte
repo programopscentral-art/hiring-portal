@@ -167,6 +167,22 @@
           </div>
         </div>
       {/if}
+
+      {#if c.legacyStages && Object.keys(c.legacyStages).length}
+        <div class="card pad-lg">
+          <h2 class="serif" style="font-size:18px;margin-bottom:12px">Legacy interview history</h2>
+          <div class="muted small" style="margin-bottom:8px">From the legacy plan sheet — preserved for cross-reference.</div>
+          {#each Object.entries(c.legacyStages) as [stage, ev]}
+            <div class="legacy-row">
+              <div class="legacy-stage">{stage.toUpperCase()}</div>
+              <div>
+                <div class="legacy-status">{ev.status || '—'}</div>
+                <div class="muted small">{ev.parsedDate?.toLocaleDateString() || ev.date || ''}</div>
+              </div>
+            </div>
+          {/each}
+        </div>
+      {/if}
     </div>
   </section>
 {/if}
@@ -255,4 +271,22 @@
   dl.kv dd { color: var(--ink); margin: 0; word-break: break-word; }
   dl.kv dd a { color: var(--brand-deep); font-weight: 600; }
   .small { font-size: 12px; }
+
+  .legacy-row {
+    display: grid; grid-template-columns: 70px 1fr;
+    gap: 10px; align-items: center;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--line-soft);
+  }
+  .legacy-row:last-child { border-bottom: 0; }
+  .legacy-stage {
+    font-size: 10px; font-weight: 800;
+    padding: 4px 8px;
+    border-radius: 4px;
+    background: var(--gold-soft, #f3e8d0);
+    color: #8E6B36;
+    text-align: center;
+    letter-spacing: .04em;
+  }
+  .legacy-status { font-size: 12.5px; color: var(--ink); font-weight: 600; }
 </style>

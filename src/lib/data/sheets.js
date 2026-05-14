@@ -14,6 +14,9 @@ import {
   parseStatusEnums,
   parseDashboardData,
   parseRaw,
+  parseLegacyRoleTracker,
+  parseHiringPlan,
+  parseLegacyDashboardData,
   nameKey,
   classifyDecision,
   STAGE_KEYS,
@@ -22,6 +25,17 @@ import {
 
 export const DEFAULT_SHEET_ID = '1vhoYflwEKI-SnKSb95x-wKhL4vgMTSsbS0dVEvsxOuE';
 export const DEFAULT_SHEET_URL = `https://docs.google.com/spreadsheets/d/${DEFAULT_SHEET_ID}/edit?usp=sharing`;
+
+// Secondary sheet (legacy plan + BOA + dashboard data). Always fetched.
+export const PLAN_SHEET_ID = '1NShjSPanzLulrNAk0grZgu94ibEO31lYJKupMjkrZJY';
+export const PLAN_TABS = {
+  '1244970599': { name: 'BOA (legacy)',          kind: 'legacyRole', role: 'BOA' },
+  '1831507878': { name: 'PMA (legacy)',          kind: 'legacyRole', role: 'PMA' },
+  '2092953225': { name: 'PM (legacy)',           kind: 'legacyRole', role: 'PM' },
+  '389019874':  { name: 'COS (legacy)',          kind: 'legacyRole', role: 'COS' },
+  '118081566':  { name: 'Hiring Plan',           kind: 'plan' },
+  '672534942':  { name: 'Dashboard data (legacy)', kind: 'legacyDashboard' },
+};
 
 // Deterministic mapping from gid → (kind, displayName, parser hint).
 // `kind` drives merging logic. `stageKey` (if present) is the canonical
@@ -207,10 +221,13 @@ export async function fetchAndMergeAllTabs(sheetUrl) {
   const discovered = await discoverGids(sheetId);
   const gids = discovered.length ? discovered : Object.keys(TAB_MAP);
 
-  // Fetch all in parallel
-  const fetches = await Promise.allSettled(
-    gids.map(async gid => ({ gid, text: await fetchCsv(sheetId, gid) }))
-  );
+  // Fetch both sheets in parallel: primary tabs + secondary plan tabs
+  const planGids = Object.keys(PLAN_TABS);
+  const [primaryFetches, planFetches] = await Promise.all([
+    Promise.allSettled(gids.map(async gid => ({ gid, text: await fetchCsv(sheetId, gid) }))),
+    Promise.allSettled(planGids.map(async gid => ({ gid, text: await fetchCsv(PLAN_SHEET_ID, gid) }))),
+  ]);
+  const fetches = primaryFetches;
 
   const tabSummary = [];
   const warnings = [];
@@ -223,6 +240,33 @@ export async function fetchAndMergeAllTabs(sheetUrl) {
   let rejectionTaxonomy = null;
   let statusEnums = null;
   let dashboardData = null;
+
+  // --- Parse secondary (plan) sheet first ---
+  let hiringPlan = [];
+  let legacyDashboard = null;
+  const legacyEvents = [];          // legacy role-tracker events (R1/R2/R3 per round)
+  for (const r of planFetches) {
+    if (r.status !== 'fulfilled') {
+      warnings.push(`Plan sheet: ${r.reason?.message || r.reason}`);
+      continue;
+    }
+    const { gid, text } = r.value;
+    const meta = PLAN_TABS[gid];
+    if (!meta) continue;
+    const summary = { gid, name: meta.name, kind: meta.kind, source: 'plan-sheet', bytes: text.length, rows: text.split('\n').length };
+    tabSummary.push(summary);
+    rawTabs[`plan-${gid}`] = { ...meta, gid: `plan-${gid}`, source: 'plan-sheet', ...parseRaw(text) };
+    if (meta.kind === 'legacyRole') {
+      const evs = parseLegacyRoleTracker(text, meta.role);
+      summary.events = evs.length;
+      legacyEvents.push(...evs);
+    } else if (meta.kind === 'plan') {
+      hiringPlan = parseHiringPlan(text);
+      summary.planRows = hiringPlan.length;
+    } else if (meta.kind === 'legacyDashboard') {
+      legacyDashboard = parseLegacyDashboardData(text);
+    }
+  }
 
   for (const r of fetches) {
     if (r.status !== 'fulfilled') {
@@ -299,6 +343,26 @@ export async function fetchAndMergeAllTabs(sheetUrl) {
       mergeCandidate(c, ev, 'stage');
     }
   }
+  // Legacy role-tracker events: new-sheet candidates take priority, but if a
+  // candidate only exists in legacy (e.g. all BOA, or PMA/PM/COS people the
+  // new sheet doesn't know about), they become candidates too. For existing
+  // candidates we add legacy-only events as `legacyStages[stage]` without
+  // overwriting the rich new-sheet stage data.
+  for (const ev of legacyEvents) {
+    const c = upsertByName(ev.name);
+    if (!c) continue;
+    if (!c.role) c.role = ev.role;
+    if (!c.legacyStages) c.legacyStages = {};
+    // Pick the latest by date if multiple events for same stage
+    const existing = c.legacyStages[ev.stage];
+    if (!existing || (ev.parsedDate && (!existing.parsedDate || ev.parsedDate > existing.parsedDate))) {
+      c.legacyStages[ev.stage] = ev;
+    }
+    // If no new-sheet stage exists for this stage, also use legacy as the primary stage
+    if (!c.stages[ev.stage] && ev.decision) {
+      c.stages[ev.stage] = { ...ev, panelist: '', stageData: {} };
+    }
+  }
 
   for (const c of byKey.values()) finalizeCandidate(c);
   const candidates = [...byKey.values()];
@@ -311,10 +375,13 @@ export async function fetchAndMergeAllTabs(sheetUrl) {
     applications,
     details,
     stageEvents,
+    legacyEvents,
     candidates,
     candidatesDataSchema,
     rejectionTaxonomy,
     statusEnums,
     dashboardData,
+    hiringPlan,
+    legacyDashboard,
   };
 }

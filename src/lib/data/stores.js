@@ -20,11 +20,14 @@ export const dataset = writable({
   applications: [],
   details: [],
   stageEvents: [],
+  legacyEvents: [],
   candidates: [],
   candidatesDataSchema: null,
   rejectionTaxonomy: null,
   statusEnums: null,
   dashboardData: null,
+  hiringPlan: [],
+  legacyDashboard: null,
 });
 
 // ---------- UI state ----------
@@ -242,12 +245,64 @@ export const rejectionMatrix = derived(dataset, $d => {
   return out.sort((a, b) => b.count - a.count);
 });
 
-// Recent activity feed — events from stages with a date, newest first
+// Recent activity feed — newest first, merges new-sheet + legacy events
 export const recentActivity = derived(dataset, $d => {
-  return $d.stageEvents
-    .filter(e => e.parsedDate)
-    .sort((a, b) => b.parsedDate - a.parsedDate)
-    .slice(0, 50);
+  const a = [...$d.stageEvents, ...($d.legacyEvents || [])]
+    .filter(e => e.parsedDate);
+  a.sort((a, b) => b.parsedDate - a.parsedDate);
+  return a.slice(0, 50);
+});
+
+// =============================================================
+// HIRING PLAN (from old sheet's Summary table)
+// =============================================================
+
+// Plan rows indexed by state
+export const planByState = derived(dataset, $d => {
+  const map = new Map();
+  for (const p of $d.hiringPlan || []) {
+    if (!map.has(p.state)) map.set(p.state, { state: p.state, positions: 0, hired: 0, universities: new Set(), roles: new Set(), rows: [] });
+    const m = map.get(p.state);
+    m.positions += p.positions || 0;
+    if (p.hired) m.hired++;
+    m.universities.add(p.university);
+    m.roles.add(p.role);
+    m.rows.push(p);
+  }
+  return [...map.values()].map(s => ({
+    ...s,
+    universities: [...s.universities],
+    roles: [...s.roles],
+  })).sort((a, b) => b.positions - a.positions);
+});
+
+// Plan rows indexed by university
+export const planByUniversity = derived(dataset, $d => {
+  const map = new Map();
+  for (const p of $d.hiringPlan || []) {
+    const key = p.university;
+    if (!map.has(key)) map.set(key, {
+      university: key, state: p.state, type: p.type,
+      positions: 0, hired: 0, roles: {}, rows: [],
+    });
+    const m = map.get(key);
+    m.positions += p.positions || 0;
+    if (p.hired) m.hired++;
+    m.roles[p.role] = (m.roles[p.role] || 0) + (p.positions || 0);
+    m.rows.push(p);
+  }
+  return [...map.values()].sort((a, b) => b.positions - a.positions);
+});
+
+// Plan by role
+export const planByRole = derived(dataset, $d => {
+  const map = Object.fromEntries(ROLES.map(r => [r, { positions: 0, hired: 0 }]));
+  for (const p of $d.hiringPlan || []) {
+    if (!map[p.role]) map[p.role] = { positions: 0, hired: 0 };
+    map[p.role].positions += p.positions || 0;
+    if (p.hired) map[p.role].hired++;
+  }
+  return map;
 });
 
 // =============================================================
@@ -327,10 +382,10 @@ export async function refreshAll() {
 
 export function roleOf(c) {
   let r = (c.role || '').toUpperCase();
-  if (r.startsWith('PMA')) return 'PMA';
-  if (r.startsWith('PM')) return 'PM';
-  if (r.startsWith('COS')) return 'COS';
   if (r.startsWith('BOA')) return 'BOA';
+  if (r.startsWith('PMA')) return 'PMA';
+  if (r.startsWith('COS')) return 'COS';
+  if (r.startsWith('PM')) return 'PM';
   return 'PM';
 }
 

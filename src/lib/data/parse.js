@@ -362,10 +362,131 @@ export function parseRaw(text) {
   return { headers: rows[0], rows: rows.slice(1) };
 }
 
-// ---------- Legacy stubs (kept so old imports don't break during transition) ----------
-export function classifyTab() { return 'unknown'; }
-export function parseMasterSummaryTab() { return { roleStats: {}, planRich: [] }; }
-export function parsePlanTab() { return []; }
-export function parseRoleTrackerTab() { return []; }
-export function parseCombinedTab() { return { activities: [], plan: [] }; }
-export function parseMasterSheet() { return { candidates: [] }; }
+// =====================================================================
+// OLD-SHEET PARSERS (1NShjSPa...) — legacy role tracker, plan, dashboard
+// =====================================================================
+
+/**
+ * Parse a legacy role-tracker tab (PMA/PM/COS/BOA from the OLD sheet).
+ * Each tab has 3–4 independent column groups, one per round:
+ *   [NAME, RESUME SELECTION STATUS]
+ *   [R1 DATE, NAME, R1 SELECTION STATUS]
+ *   [R2 DATE, NAME, R2 SELECTION STATUS]
+ *   [R3 DATE, NAME, R3 SELECTION STATUS]   (PM/COS/BOA only)
+ *
+ * Names within a row across column groups are NOT aligned — each group
+ * is its own candidate list. We emit one event per (group, candidate).
+ */
+export function parseLegacyRoleTracker(text, role) {
+  const rows = trim2D(parseCSV(text));
+  if (rows.length < 3) return [];
+  // Row 0 = group headers ("PMA Resume shortlisting", etc.), Row 1 = column headers
+  const headerRow = rows[1];
+  // Identify column-group start positions by finding "NAME" headers
+  const groups = [];
+  for (let c = 0; c < headerRow.length; c++) {
+    if (/^name$/i.test(headerRow[c])) {
+      // Determine which round this NAME belongs to by neighboring columns
+      const prev = clean(headerRow[c - 1]);
+      const next = clean(headerRow[c + 1]);
+      if (/r3 date|^r3 date/i.test(prev)) groups.push({ stage: 'r3', nameCol: c, dateCol: c - 1, statusCol: c + 1 });
+      else if (/r2 date|^r2 date/i.test(prev)) groups.push({ stage: 'r2', nameCol: c, dateCol: c - 1, statusCol: c + 1 });
+      else if (/r1 date|^r1 date/i.test(prev)) groups.push({ stage: 'r1', nameCol: c, dateCol: c - 1, statusCol: c + 1 });
+      else if (/resume selection status/i.test(next)) groups.push({ stage: 'resume', nameCol: c, dateCol: -1, statusCol: c + 1 });
+    }
+  }
+
+  const events = [];
+  for (let i = 2; i < rows.length; i++) {
+    const r = rows[i];
+    for (const g of groups) {
+      const name = clean(r[g.nameCol]);
+      if (!name || name.length < 2) continue;
+      const status = g.statusCol >= 0 ? clean(r[g.statusCol]) : '';
+      const dateStr = g.dateCol >= 0 ? clean(r[g.dateCol]) : '';
+      events.push({
+        role,
+        stage: g.stage === 'resume' ? 'sourced' : g.stage,
+        name,
+        nameKey: nameKey(name),
+        status,
+        decision: classifyDecision(status),
+        date: dateStr,
+        parsedDate: parseFlexibleDate(dateStr),
+        source: 'legacy',
+      });
+    }
+  }
+  return events;
+}
+
+/**
+ * Parse the Summary plan table (gid=118081566). 8 columns, NO header row:
+ *   index, state, university, type, role, positions, action, hired_status
+ */
+export function parseHiringPlan(text) {
+  const rows = trim2D(parseCSV(text));
+  if (!rows.length) return [];
+  const plan = [];
+  for (const r of rows) {
+    const idx = clean(r[0]);
+    // Skip header-ish rows ("S.No"/etc.) or empty
+    if (!idx || isNaN(parseInt(idx, 10))) continue;
+    const state = clean(r[1]);
+    const university = clean(r[2]);
+    const type = clean(r[3]);
+    const roleRaw = clean(r[4]);
+    const positions = asNum(r[5]) || 0;
+    const action = clean(r[6]);
+    const hiredStatus = clean(r[7]);
+    if (!state || !university) continue;
+    // Extract role: "BOA1", "PM1", "PMA1", "COS1" → "BOA", "PM", "PMA", "COS"
+    const roleMatch = roleRaw.match(/^(PMA|PM|COS|BOA)/i);
+    const role = roleMatch ? roleMatch[1].toUpperCase() : roleRaw;
+    plan.push({
+      idx: parseInt(idx, 10),
+      state,
+      university,
+      type,
+      role,
+      roleSlot: roleRaw,
+      positions,
+      action,
+      hired: /hired|filled/i.test(hiredStatus),
+      hiredStatus,
+    });
+  }
+  return plan;
+}
+
+/**
+ * Parse the OLD Dashboard data tab (gid=672534942). 12 columns, 4 role groups:
+ *   [PMA label, value, blank, PM label, value, blank, COS label, value, blank, BOA label, value, blank]
+ *
+ * Stops at the embedded summary table (which is parsed separately).
+ */
+export function parseLegacyDashboardData(text) {
+  const rows = trim2D(parseCSV(text));
+  if (!rows.length) return { roles: {} };
+  const headers = rows[0];
+  const groups = [];
+  for (let c = 0; c < headers.length; c++) {
+    const h = clean(headers[c]).toUpperCase();
+    if (['PMA', 'PM', 'COS', 'BOA'].includes(h)) {
+      groups.push({ role: h, start: c });
+    }
+  }
+  const roles = {};
+  for (const g of groups) {
+    const stats = {};
+    for (let i = 1; i < rows.length; i++) {
+      const label = clean(rows[i][g.start]);
+      const value = clean(rows[i][g.start + 1]);
+      // Stop when we hit the embedded summary table header (S.No)
+      if (/^S\.No$/i.test(label) || /^\d+$/.test(label) && /^[A-Z][a-z]+/.test(value)) break;
+      if (label && value && !/^\d+$/.test(label)) stats[label] = asNum(value) ?? value;
+    }
+    roles[g.role] = stats;
+  }
+  return { roles };
+}

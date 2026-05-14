@@ -1,12 +1,13 @@
 <script>
   import { page } from '$app/stores';
   import { base } from '$app/paths';
-  import { byState, ROLES, STAGES, dataset } from '$lib/data/stores.js';
+  import { byState, ROLES, STAGES, dataset, planByState } from '$lib/data/stores.js';
   import StatusPill from '$lib/components/StatusPill.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
 
   $: state = decodeURIComponent($page.params.state);
   $: stateData = $byState.find(s => s.state === state);
+  $: statePlan = $planByState.find(s => s.state === state);
   $: candidates = stateData?.candidates || [];
 
   // Group by university/company
@@ -50,23 +51,54 @@
 
 <a class="back" href="{base}/locations">← All locations</a>
 
-{#if !stateData}
-  <EmptyState title="No candidates from this state." body="Try a different state from the Locations index." actionLabel="All locations" actionHref="{base}/locations" />
+{#if !stateData && !statePlan}
+  <EmptyState title="No data for this state." body="Try a different state from the Locations index." actionLabel="All locations" actionHref="{base}/locations" />
 {:else}
+  {@const sd = stateData || { total: 0, active: 0, hired: 0, rejected: 0, candidates: [] }}
   <header class="page-head fade-up">
     <div>
       <div class="crumb">Locations</div>
       <h1 class="serif">{state}</h1>
-      <p class="muted lead">{fmt(stateData.total)} candidates · {byUni.length} universities/companies · {Object.values(byRole).filter(r => r.total).length} active roles</p>
+      <p class="muted lead">
+        {#if statePlan}<strong>{fmt(statePlan.positions)} planned positions</strong> across {statePlan.universities.length} universities · {/if}
+        {fmt(sd.total)} candidates in pool · {byUni.length} unique companies
+      </p>
     </div>
   </header>
 
   <section class="kpi-grid">
-    <div class="kpi"><div class="kl">Candidates</div><div class="kv display">{fmt(stateData.total)}</div></div>
-    <div class="kpi"><div class="kl">Active</div><div class="kv display ok">{fmt(stateData.active)}</div></div>
-    <div class="kpi"><div class="kl">Hired</div><div class="kv display brand">{fmt(stateData.hired)}</div></div>
-    <div class="kpi"><div class="kl">Rejected</div><div class="kv display bad">{fmt(stateData.rejected)}</div></div>
+    {#if statePlan}
+      <div class="kpi"><div class="kl">Plan positions</div><div class="kv display planned">{fmt(statePlan.positions)}</div></div>
+      <div class="kpi"><div class="kl">Plan hired</div><div class="kv display brand">{fmt(statePlan.hired)}</div></div>
+    {/if}
+    <div class="kpi"><div class="kl">Candidates</div><div class="kv display">{fmt(sd.total)}</div></div>
+    <div class="kpi"><div class="kl">Active</div><div class="kv display ok">{fmt(sd.active)}</div></div>
+    <div class="kpi"><div class="kl">Hired</div><div class="kv display brand">{fmt(sd.hired)}</div></div>
+    <div class="kpi"><div class="kl">Rejected</div><div class="kv display bad">{fmt(sd.rejected)}</div></div>
   </section>
+
+  {#if statePlan && statePlan.rows.length}
+    <section class="card pad-lg" style="margin-top:20px">
+      <h2 class="serif" style="font-size:22px;margin-bottom:14px">University partners in {state} ({statePlan.universities.length})</h2>
+      <div class="dgrid" style="--cols:5">
+        <div class="dh">University</div>
+        <div class="dh">Type</div>
+        <div class="dh">Role</div>
+        <div class="dh num">Positions</div>
+        <div class="dh">Status</div>
+        {#each statePlan.rows as p}
+          <div class="dc strong">{p.university}</div>
+          <div class="dc small muted">{p.type || '—'}</div>
+          <div class="dc"><span class="role-mini {p.role.toLowerCase()}">{p.roleSlot || p.role}</span></div>
+          <div class="dc num mono">{fmt(p.positions)}</div>
+          <div class="dc">
+            {#if p.hired}<span class="pill solid ok-pill">Hired</span>
+            {:else}<span class="muted small">Open</span>{/if}
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
 
   <section class="card pad-lg" style="margin-top:20px">
     <h2 class="serif" style="font-size:22px;margin-bottom:14px">By role · {state}</h2>
@@ -152,6 +184,22 @@
   .kv.ok { color: var(--ok); }
   .kv.bad { color: var(--bad); }
   .kv.brand { color: var(--brand); }
+  .kv.planned { color: var(--gold-deep, #8E6B36); }
+
+  .role-mini {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 800;
+    color: #fff;
+    letter-spacing: .02em;
+  }
+  .role-mini.pma { background: var(--brand); }
+  .role-mini.pm  { background: var(--mauve); }
+  .role-mini.cos { background: var(--olive); }
+  .role-mini.boa { background: var(--gold, #C49A47); }
+  .ok-pill { background: var(--ok); color: #fff; padding: 3px 10px; border-radius: 99px; font-size: 10px; font-weight: 800; }
 
   .role-grid {
     display: grid;
