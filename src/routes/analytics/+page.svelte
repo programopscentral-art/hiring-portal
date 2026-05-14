@@ -108,6 +108,114 @@
     { key: 'rejected', label: 'Rejected', color: 'var(--brand)' },
   ];
 
+  // Per-role × per-stage matrix (Sourced → Shortlist → R1 → R2 → R3)
+  $: stageMatrix = roleCards.map(r => {
+    const rows = [
+      { stage: 'Sourced',    count: r.resumes,            base: r.resumes },
+      { stage: 'Shortlist',  count: r.selected,           base: r.resumes },
+      { stage: 'R1 selected', count: r.r1sel,             base: r.r1 || r.selected },
+      { stage: 'R2 selected', count: r.r2sel,             base: r.r2 || r.r1sel },
+    ];
+    if (r.r3 > 0 || r.r3sel > 0) {
+      rows.push({ stage: 'R3 selected', count: r.r3sel, base: r.r3 || r.r2sel });
+    }
+    return {
+      role: r.role,
+      conv: r.conv,
+      stages: rows.map((row, i) => ({
+        ...row,
+        carry: i === 0 ? 100 : (rows[i - 1].count ? Math.round((row.count / rows[i - 1].count) * 100) : 0),
+      })),
+    };
+  });
+
+  // Auto-extracted INSIGHTS
+  $: insights = (() => {
+    const out = [];
+    if (!roleCards.length) return out;
+
+    // Best converting role
+    const sorted = [...roleCards].filter(r => r.resumes > 0).sort((a, b) => b.conv - a.conv);
+    if (sorted[0]) {
+      out.push({
+        kind: 'best',
+        title: 'Top converting role',
+        value: sorted[0].role,
+        sub: `${sorted[0].conv}% top→final · ${sorted[0].r1sel + sorted[0].r2sel + sorted[0].r3sel} selected from ${sorted[0].resumes} resumes`,
+      });
+    }
+    if (sorted.length > 1) {
+      const worst = sorted[sorted.length - 1];
+      out.push({
+        kind: 'worst',
+        title: 'Weakest funnel',
+        value: worst.role,
+        sub: `${worst.conv}% top→final · ${worst.resumes} resumes, ${worst.r1sel + worst.r2sel + worst.r3sel} reached final`,
+      });
+    }
+
+    // Biggest stage drop-off across all roles
+    let biggestDrop = null;
+    for (const r of roleCards) {
+      const stages = [
+        { name: 'Resume → Shortlist', from: r.resumes, to: r.selected },
+        { name: 'Shortlist → R1',     from: r.selected, to: r.r1 },
+        { name: 'R1 done → R1 sel',   from: r.r1,       to: r.r1sel },
+        { name: 'R1 sel → R2 done',   from: r.r1sel,    to: r.r2 },
+        { name: 'R2 done → R2 sel',   from: r.r2,       to: r.r2sel },
+      ];
+      for (const s of stages) {
+        if (s.from < 5) continue;
+        const dropPct = ((s.from - s.to) / s.from) * 100;
+        if (!biggestDrop || dropPct > biggestDrop.dropPct) {
+          biggestDrop = { ...s, dropPct, role: r.role };
+        }
+      }
+    }
+    if (biggestDrop) {
+      out.push({
+        kind: 'bottleneck',
+        title: 'Biggest bottleneck',
+        value: `${biggestDrop.role} · ${biggestDrop.name}`,
+        sub: `${Math.round(biggestDrop.dropPct)}% drop-off · ${biggestDrop.from - biggestDrop.to} of ${biggestDrop.from} candidates lost here`,
+      });
+    }
+
+    // Top hiring state
+    const stateMap = new Map();
+    for (const p of $data.plan) {
+      if (!stateMap.has(p.state)) stateMap.set(p.state, { state: p.state, positions: 0, hired: 0 });
+      const s = stateMap.get(p.state);
+      s.positions += p.positions;
+      if (p.hired) s.hired += p.positions;
+    }
+    const topState = [...stateMap.values()].sort((a, b) => b.hired - a.hired || b.positions - a.positions)[0];
+    if (topState && topState.hired > 0) {
+      out.push({
+        kind: 'state',
+        title: 'Most hires in',
+        value: topState.state,
+        sub: `${topState.hired} hired of ${topState.positions} planned positions`,
+      });
+    }
+
+    return out;
+  })();
+
+  // State breakdown for horizontal bar chart
+  $: stateBars = (() => {
+    const m = new Map();
+    for (const p of $data.plan) {
+      if (!m.has(p.state)) m.set(p.state, { state: p.state, positions: 0, hired: 0 });
+      const s = m.get(p.state);
+      s.positions += p.positions;
+      if (p.hired) s.hired += p.positions;
+    }
+    const arr = [...m.values()].sort((a, b) => b.positions - a.positions);
+    const max = Math.max(1, ...arr.map(s => s.positions));
+    return arr.map(s => ({ ...s, pct: (s.positions / max) * 100, hirePct: (s.hired / max) * 100 }));
+  })();
+
   // Top universities by hire progress
   $: topUniversities = (() => {
     const m = new Map();
@@ -224,42 +332,108 @@
       <StatCard label="Positions hired" value={hiredCount} kind="mauve" delta={planTotals.positions ? fmtPct(hiredCount / planTotals.positions * 100) + ' of plan filled' : ''} />
     </div>
 
-    <!-- Cross-role conversion comparison -->
+    <!-- Auto-extracted insights -->
+    {#if insights.length}
+      <div class="insight-grid stagger" style="margin-top: 20px">
+        {#each insights as ins, i (ins.kind)}
+          <div class="insight-card insight-{ins.kind}" in:fly={{ y: 8, delay: i * 60, duration: 380, easing: quintOut }}>
+            <div class="ins-icon">
+              {#if ins.kind === 'best'}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4 2 7-6.5-4.5L5.5 22l2-7L2 11h7l3-9z"/></svg>
+              {:else if ins.kind === 'worst'}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01"/><circle cx="12" cy="12" r="9"/></svg>
+              {:else if ins.kind === 'bottleneck'}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 5h18l-7 8v6l-4 2v-8L3 5z"/></svg>
+              {:else if ins.kind === 'state'}
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s7-7 7-13a7 7 0 1 0-14 0c0 6 7 13 7 13z"/><circle cx="12" cy="9" r="2.5"/></svg>
+              {/if}
+            </div>
+            <div class="ins-body">
+              <div class="ins-title">{ins.title}</div>
+              <div class="ins-value display">{ins.value}</div>
+              <div class="ins-sub">{ins.sub}</div>
+            </div>
+          </div>
+        {/each}
+      </div>
+    {/if}
+
+    <!-- Role × Stage matrix table -->
     {#if hasMaster}
-      <div class="card pad-lg analytics-block">
-        <div class="section-h" style="margin-bottom:18px">
+      <div class="card pad-lg" style="margin-top: 20px">
+        <div class="section-h" style="margin-bottom:14px">
           <div class="title">
-            <h2>Conversion comparison</h2>
-            <span class="count">resumes → final stage</span>
+            <h2>Pipeline matrix</h2>
+            <span class="count">role × stage with carry-through %</span>
           </div>
         </div>
-        <div class="conv-grid">
-          {#each roleCards as r, i (r.role)}
-            {@const finalSel = r.r3sel + r.r2sel + r.r1sel}
-            <div class="conv-row" in:fly={{ y: 6, delay: i * 50, duration: 360, easing: quintOut }}>
-              <div class="conv-role">
+        <div class="matrix-wrap">
+          <div class="matrix">
+            <!-- Header row -->
+            <div class="m-cell m-corner">Role</div>
+            {#each stageMatrix[0]?.stages || [] as s}
+              <div class="m-cell m-head">{s.stage}</div>
+            {/each}
+            <div class="m-cell m-head conv-h">Top→Final</div>
+
+            <!-- Data rows -->
+            {#each stageMatrix as r, ri (r.role)}
+              <div class="m-cell m-role">
                 <span class="pill solid">{r.role}</span>
-                <span class="conv-conv mono">{r.conv}%</span>
               </div>
-              <div class="conv-bar-stack">
-                <div class="conv-step" style="flex: {r.resumes || 1}" data-label="{r.resumes} resumes">
-                  <span class="cs-num">{r.resumes}</span>
-                  <span class="cs-lbl">resumes</span>
+              {#each r.stages as s, si}
+                <div class="m-cell m-data" class:weak={s.carry < 30 && si > 0} class:strong={s.carry >= 60 && si > 0}>
+                  <div class="m-num display">{s.count}</div>
+                  {#if si > 0}
+                    <div class="m-carry">
+                      {#if s.carry >= 60}
+                        <span class="carry-arrow good">↘</span>
+                      {:else if s.carry >= 30}
+                        <span class="carry-arrow ok">↘</span>
+                      {:else}
+                        <span class="carry-arrow bad">↘</span>
+                      {/if}
+                      {s.carry}%
+                    </div>
+                  {/if}
                 </div>
-                <div class="conv-step shortlist" style="flex: {r.selected || 0.01}" data-label="{r.selected} shortlisted">
-                  {#if r.selected}<span class="cs-num">{r.selected}</span><span class="cs-lbl">shortlist</span>{/if}
-                </div>
-                <div class="conv-step r1" style="flex: {r.r1sel || 0.01}" data-label="{r.r1sel} R1 selected">
-                  {#if r.r1sel}<span class="cs-num">{r.r1sel}</span><span class="cs-lbl">R1✓</span>{/if}
-                </div>
-                <div class="conv-step r2" style="flex: {r.r2sel || 0.01}" data-label="{r.r2sel} R2 selected">
-                  {#if r.r2sel}<span class="cs-num">{r.r2sel}</span><span class="cs-lbl">R2✓</span>{/if}
-                </div>
-                {#if r.r3 > 0 || r.r3sel > 0}
-                  <div class="conv-step r3" style="flex: {r.r3sel || 0.01}" data-label="{r.r3sel} R3 selected">
-                    {#if r.r3sel}<span class="cs-num">{r.r3sel}</span><span class="cs-lbl">R3✓</span>{/if}
-                  </div>
+              {/each}
+              <div class="m-cell m-conv">
+                <div class="m-num display brand">{r.conv}%</div>
+              </div>
+            {/each}
+          </div>
+        </div>
+      </div>
+    {/if}
+
+    <!-- State breakdown bar chart -->
+    {#if stateBars.length}
+      <div class="card pad-lg" style="margin-top: 20px">
+        <div class="section-h" style="margin-bottom:14px">
+          <div class="title">
+            <h2>State breakdown</h2>
+            <span class="count">positions planned vs hired</span>
+          </div>
+          <div class="row gap-sm">
+            <span class="trend-key"><span class="tk-swatch" style="background:var(--brand-soft-2);outline:1px solid var(--brand)"></span>Planned</span>
+            <span class="trend-key"><span class="tk-swatch" style="background:var(--olive)"></span>Hired</span>
+          </div>
+        </div>
+        <div class="state-bars">
+          {#each stateBars as s, i (s.state)}
+            <div class="sb-row" in:fly={{ y: 4, delay: i * 30, duration: 320 }}>
+              <div class="sb-label">{s.state}</div>
+              <div class="sb-bar">
+                <div class="sb-planned" style="width: {s.pct}%"></div>
+                {#if s.hired > 0}
+                  <div class="sb-hired" style="width: {s.hirePct}%"></div>
                 {/if}
+              </div>
+              <div class="sb-counts mono">
+                <span class="sb-h">{s.hired}</span>
+                <span class="sb-sep">/</span>
+                <span class="sb-p">{s.positions}</span>
               </div>
             </div>
           {/each}
@@ -820,6 +994,117 @@
   /* ============== Trend chart key ============== */
   .trend-key { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; color: var(--ink-2); }
   .tk-swatch { width: 10px; height: 10px; border-radius: 3px; }
+
+  /* ============== Insight cards ============== */
+  .insight-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--s-4);
+  }
+  .insight-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 18px 20px;
+    border-radius: var(--r-lg);
+    border: 1px solid var(--line);
+    background: var(--surface);
+    box-shadow: var(--shadow-xs);
+    transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
+  }
+  .insight-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+  .insight-best     { border-left: 4px solid var(--olive); }
+  .insight-worst    { border-left: 4px solid var(--warn); }
+  .insight-bottleneck { border-left: 4px solid var(--brand); }
+  .insight-state    { border-left: 4px solid var(--mauve); }
+  .ins-icon {
+    width: 38px; height: 38px;
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+    background: var(--surface-sunk);
+    color: var(--ink-2);
+  }
+  .insight-best .ins-icon { background: var(--olive-soft); color: #4A5634; }
+  .insight-worst .ins-icon { background: var(--warn-soft); color: #6E5022; }
+  .insight-bottleneck .ins-icon { background: var(--brand-soft); color: var(--brand-deep); }
+  .insight-state .ins-icon { background: var(--mauve-soft); color: var(--mauve-deep); }
+  .ins-icon svg { width: 18px; height: 18px; }
+  .ins-body { min-width: 0; flex: 1; }
+  .ins-title { font-size: 10.5px; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3); font-weight: 700; }
+  .ins-value { font-size: 22px; font-weight: 700; line-height: 1.2; margin: 4px 0; color: var(--ink); letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .ins-sub { font-size: 11.5px; color: var(--ink-3); line-height: 1.4; }
+
+  /* ============== Pipeline matrix ============== */
+  .matrix-wrap { overflow-x: auto; margin: 0 -4px; }
+  .matrix {
+    display: grid;
+    grid-template-columns: 90px repeat(var(--cols, 4), minmax(112px, 1fr)) 100px;
+    gap: 0;
+    min-width: 100%;
+    --cols: 5;
+  }
+  .m-cell {
+    padding: 14px 12px;
+    border-bottom: 1px solid var(--line-soft);
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    min-width: 0;
+  }
+  .m-corner, .m-head { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--ink-3); border-bottom: 2px solid var(--ink); }
+  .m-head.conv-h { color: var(--brand-deep); }
+  .m-role { padding-left: 4px; }
+  .m-data { padding: 14px 12px; }
+  .m-data.weak { background: rgba(227, 83, 54, .06); }
+  .m-data.strong { background: rgba(107, 122, 79, .08); }
+  .m-num { font-size: 20px; line-height: 1; font-weight: 700; color: var(--ink); letter-spacing: -0.02em; }
+  .m-num.brand { color: var(--brand-deep); }
+  .m-carry { display: flex; align-items: center; gap: 4px; font-size: 10.5px; font-family: var(--font-mono); color: var(--ink-3); margin-top: 4px; font-weight: 600; }
+  .carry-arrow { font-weight: 800; }
+  .carry-arrow.good { color: var(--olive); }
+  .carry-arrow.ok { color: var(--warn); }
+  .carry-arrow.bad { color: var(--brand); }
+  .m-conv { background: var(--brand-soft-2); border-left: 1px solid var(--line-soft); }
+
+  /* ============== State breakdown bars ============== */
+  .state-bars { display: flex; flex-direction: column; gap: 8px; }
+  .sb-row {
+    display: grid;
+    grid-template-columns: 130px 1fr 80px;
+    gap: 14px;
+    align-items: center;
+    padding: 8px 10px;
+    border-radius: 10px;
+    transition: background var(--t-fast) var(--ease);
+  }
+  .sb-row:hover { background: var(--brand-soft-2); }
+  .sb-label { font-size: 13px; font-weight: 600; color: var(--ink); }
+  .sb-bar {
+    position: relative;
+    height: 22px;
+    background: var(--surface-sunk);
+    border-radius: 6px;
+    overflow: hidden;
+  }
+  .sb-planned {
+    position: absolute; inset: 0 auto 0 0;
+    background: var(--brand-soft-2);
+    border: 1px solid var(--brand);
+    border-radius: 6px;
+    transition: width 600ms var(--ease);
+  }
+  .sb-hired {
+    position: absolute; inset: 0 auto 0 0;
+    background: linear-gradient(90deg, var(--olive) 0%, #4A5634 100%);
+    border-radius: 6px;
+    transition: width 600ms var(--ease);
+  }
+  .sb-counts { font-size: 12px; text-align: right; font-weight: 700; }
+  .sb-h { color: var(--olive); }
+  .sb-sep { color: var(--ink-3); margin: 0 2px; }
+  .sb-p { color: var(--ink); }
 
   /* ============== Trends tab ============== */
   .mini-trend .lbl { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 700; color: var(--ink-3); }
