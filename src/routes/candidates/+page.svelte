@@ -1,190 +1,149 @@
 <script>
-  import { data, filters } from '$lib/data/stores.js';
-  import { goto } from '$app/navigation';
   import { base } from '$app/paths';
-  import { fly } from 'svelte/transition';
-  import { quintOut } from 'svelte/easing';
+  import { dataset, filters, filteredCandidates, ROLES, STAGES } from '$lib/data/stores.js';
   import StatusPill from '$lib/components/StatusPill.svelte';
-  import Filters from '$lib/components/Filters.svelte';
+  import EmptyState from '$lib/components/EmptyState.svelte';
 
-  // Build a unified candidate list from master + tracker shadows
-  $: allCandidates = $data.candidates.map(c => ({
-    id: c.__id,
-    name: c.__name,
-    role: c.__role || c.__lastEvent?.role || '',
-    cycle: c.__cycle,
-    source: c.__source,
-    sourcer: c.__sourcedBy,
-    stage: c.__currentStage || (c.__lastEvent ? `${c.__lastEvent.role} ${c.__lastEvent.stage}` : ''),
-    status: c.__lastEvent?.decision || (c.__joiningStatus?.toLowerCase() === 'joined' ? 'selected' : 'pending'),
-    joined: (c.__joiningStatus || '').toLowerCase() === 'joined',
-    lastDate: c.__lastEvent?.parsedDate || null,
-    isShadow: !!c.__isShadow,
-  }));
+  let q = '';
+  $: $filters.search = q;
 
-  // Cross-reference candidates to plan via their role:
-  //   - state filter: candidate's role must appear in that state's plan
-  //   - university filter: candidate's role must appear in that university's plan
-  // Strip trailing digits to match base role (PMA1 ↔ PMA).
-  function baseRole(r) { return (r || '').replace(/[0-9]+$/, ''); }
-  $: planRolesByState = (() => {
-    const m = new Map();
-    for (const p of $data.plan) {
-      if (!m.has(p.state)) m.set(p.state, new Set());
-      const set = m.get(p.state);
-      set.add(p.role);
-      set.add(baseRole(p.role));
-    }
-    return m;
-  })();
-  $: planRolesByUni = (() => {
-    const m = new Map();
-    for (const p of $data.plan) {
-      if (!m.has(p.location)) m.set(p.location, new Set());
-      const set = m.get(p.location);
-      set.add(p.role);
-      set.add(baseRole(p.role));
-    }
-    return m;
-  })();
+  let pageSize = 50;
+  let pageIdx = 0;
+  $: pages = Math.max(1, Math.ceil($filteredCandidates.length / pageSize));
+  $: pageIdx = Math.min(pageIdx, pages - 1);
+  $: visible = $filteredCandidates.slice(pageIdx * pageSize, (pageIdx + 1) * pageSize);
 
-  function matchesRoleFilter(candidateRole, filterRole) {
-    if (!filterRole) return true;
-    if (!candidateRole) return false;
-    return candidateRole === filterRole || baseRole(candidateRole) === baseRole(filterRole);
+  function clearFilters() {
+    filters.set({ role: '', stage: '', decision: '', state: '', university: '', source: '', panelist: '', search: '' });
+    q = '';
+    pageIdx = 0;
   }
 
-  function matchesPlanRoleSet(candidateRole, roleSet) {
-    if (!candidateRole) return false;
-    return roleSet.has(candidateRole) || roleSet.has(baseRole(candidateRole));
+  function stageOf(c) {
+    const s = STAGES.find(x => x.key === c.currentStage);
+    return s?.short || c.currentStage || '—';
   }
 
-  $: filtered = allCandidates.filter(c => {
-    if ($filters.search) {
-      const q = $filters.search.toLowerCase();
-      if (!(c.name?.toLowerCase().includes(q) || c.role?.toLowerCase().includes(q) || c.source?.toLowerCase().includes(q))) return false;
-    }
-    if (!matchesRoleFilter(c.role, $filters.role)) return false;
-    if ($filters.source && c.source !== $filters.source) return false;
-    if ($filters.stage && !c.stage?.toLowerCase().includes($filters.stage.toLowerCase())) return false;
-    if ($filters.state) {
-      const set = planRolesByState.get($filters.state);
-      if (!set || !matchesPlanRoleSet(c.role, set)) return false;
-    }
-    if ($filters.university) {
-      const set = planRolesByUni.get($filters.university);
-      if (!set || !matchesPlanRoleSet(c.role, set)) return false;
-    }
-    return true;
-  });
-
-  $: totals = {
-    all: filtered.length,
-    joined: filtered.filter(c => c.joined).length,
-    pipeline: filtered.filter(c => !c.joined && c.status !== 'rejected').length,
-    rejected: filtered.filter(c => c.status === 'rejected').length,
-  };
-
-  $: roleBreakdown = (() => {
-    const m = new Map();
-    for (const c of filtered) {
-      const r = baseRole(c.role) || 'Unknown';
-      m.set(r, (m.get(r) || 0) + 1);
-    }
-    return [...m.entries()].sort((a, b) => b[1] - a[1]);
-  })();
-
-  let searchInput = $filters.search;
-  function onSearchInput() { filters.update(f => ({ ...f, search: searchInput })); }
+  function fmt(n) { return (n || 0).toLocaleString(); }
 </script>
 
 <svelte:head><title>Candidates · Hiring Portal</title></svelte:head>
 
 <header class="page-head fade-up">
   <div>
-    <div class="crumb">People</div>
-    <h1>Candidates</h1>
+    <div class="crumb">Hiring portal</div>
+    <h1 class="serif">Candidates</h1>
+    <p class="muted lead">{fmt($filteredCandidates.length)} of {fmt($dataset.candidates.length)} candidates · click any row for 360° detail.</p>
   </div>
-  <Filters />
 </header>
 
-<div class="row gap" style="margin-bottom:18px;flex-wrap:wrap">
-  <div class="card" style="padding:6px 14px;display:flex;align-items:center;gap:8px;border-radius:99px;flex:1;max-width:480px">
-    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-    <input bind:value={searchInput} on:input={onSearchInput} placeholder="Search name, role, source…" style="flex:1;border:0;background:transparent;outline:none;font-size:13px;padding:6px 0" />
-  </div>
-  <div class="row gap-sm" style="flex-wrap:wrap">
-    <span class="pill"><span class="dot"></span> {totals.all} total</span>
-    <span class="pill ok"><span class="dot"></span> {totals.joined} joined</span>
-    <span class="pill warn"><span class="dot"></span> {totals.pipeline} in pipeline</span>
-    <span class="pill bad"><span class="dot"></span> {totals.rejected} rejected</span>
-  </div>
-</div>
+<section class="filterbar card pad">
+  <input
+    class="input"
+    placeholder="Search by name, email, phone, location…"
+    bind:value={q}
+    style="flex:1;min-width:200px"
+  />
 
-{#if roleBreakdown.length}
-  <div class="row gap-sm" style="margin-bottom:14px;flex-wrap:wrap">
-    <span style="font-size:11px;color:var(--ink-3);font-weight:600;text-transform:uppercase;letter-spacing:.08em">Roles</span>
-    {#each roleBreakdown as [role, n]}
-      <span class="pill brand">{role} · {n}</span>
-    {/each}
-  </div>
-{/if}
+  <select class="input sm" bind:value={$filters.role} on:change={() => pageIdx = 0}>
+    <option value="">All roles</option>
+    {#each ROLES as r}<option value={r}>{r}</option>{/each}
+  </select>
 
-{#if $filters.state || $filters.university}
-  <div style="margin-bottom:12px;padding:10px 14px;background:var(--info-soft);border-radius:10px;font-size:12px;color:var(--ink-2)">
-    <strong>Note:</strong> Candidates aren't pinned to a single state or university. The filter shows everyone whose role matches an open position in the selected {$filters.state ? 'state' : ''}{$filters.state && $filters.university ? ' and ' : ''}{$filters.university ? 'university' : ''}.
-  </div>
-{/if}
+  <select class="input sm" bind:value={$filters.stage} on:change={() => pageIdx = 0}>
+    <option value="">All stages</option>
+    {#each STAGES as s}<option value={s.key}>{s.label}</option>{/each}
+  </select>
 
-<div class="card" style="padding:0;overflow:hidden">
-  <div class="table-wrap">
-    <table class="table">
-      <thead><tr>
-        <th>Candidate</th><th>Role</th><th>Source</th><th>Sourced by</th>
-        <th>Latest stage</th><th>Status</th><th>Last activity</th>
-      </tr></thead>
-      <tbody>
-        {#each filtered.slice(0, 200) as c, i (c.id)}
-          <tr class="row" on:click={() => goto(`${base}/candidates/${encodeURIComponent(c.id)}`)} in:fly={{ y: 4, delay: i * 6, duration: 240 }}>
-            <td>
-              <div class="row gap">
-                <div class="ava">{c.name?.split(' ').filter(Boolean).slice(0,2).map(w => w[0]).join('').toUpperCase() || '?'}</div>
-                <div>
-                  <div style="font-weight:600">{c.name || '—'}</div>
-                  {#if c.isShadow}
-                    <div class="muted" style="font-size:10px">tracker only</div>
-                  {:else}
-                    <div class="muted" style="font-size:10px">{c.cycle || 'master'}</div>
-                  {/if}
-                </div>
-              </div>
-            </td>
-            <td><span class="pill brand">{c.role || '—'}</span></td>
-            <td>{c.source || '—'}</td>
-            <td class="muted">{c.sourcer || '—'}</td>
-            <td><span class="pill outline">{c.stage || '—'}</span></td>
-            <td><StatusPill decision={c.status} /></td>
-            <td class="muted mono" style="font-size:11px">{c.lastDate ? c.lastDate.toLocaleDateString() : '—'}</td>
-          </tr>
-        {:else}
-          <tr><td colspan="7" class="empty">No candidates match.</td></tr>
-        {/each}
-      </tbody>
-    </table>
-    {#if filtered.length > 200}
-      <div class="muted" style="text-align:center;padding:14px;font-size:12px">Showing 200 of {filtered.length} — refine filters to see more.</div>
-    {/if}
-  </div>
-</div>
+  <select class="input sm" bind:value={$filters.decision} on:change={() => pageIdx = 0}>
+    <option value="">All decisions</option>
+    <option value="active">Active</option>
+    <option value="hired">Hired</option>
+    <option value="rejected">Rejected</option>
+  </select>
+
+  <button class="btn ghost sm" on:click={clearFilters}>Clear</button>
+</section>
+
+<section class="card pad" style="margin-top:18px">
+  {#if visible.length}
+    <div class="dgrid" style="--cols:8">
+      <div class="dh">Name</div>
+      <div class="dh">Role</div>
+      <div class="dh">Stage</div>
+      <div class="dh">Location</div>
+      <div class="dh">Phone</div>
+      <div class="dh">Source</div>
+      <div class="dh">CTC (exp)</div>
+      <div class="dh">Status</div>
+      {#each visible as c}
+        <a class="dc strong" href="{base}/candidates/{encodeURIComponent(c.nameKey)}">{c.name}</a>
+        <div class="dc">{c.role || '—'}</div>
+        <div class="dc"><span class="stage-tag">{stageOf(c)}</span></div>
+        <div class="dc small">{c.location || c.currentLocation || '—'}</div>
+        <div class="dc mono small">{c.phone || '—'}</div>
+        <div class="dc small">{c.sourceName || '—'}</div>
+        <div class="dc mono small">{c.expectedCTC || '—'}</div>
+        <div class="dc"><StatusPill decision={c.finalDecision === 'active' ? 'pending' : c.finalDecision === 'hired' ? 'selected' : c.finalDecision} /></div>
+      {/each}
+    </div>
+
+    <div class="pager">
+      <button class="btn ghost sm" disabled={pageIdx === 0} on:click={() => pageIdx = Math.max(0, pageIdx - 1)}>← Prev</button>
+      <span class="muted" style="font-size:12px">Page {pageIdx + 1} of {pages}</span>
+      <button class="btn ghost sm" disabled={pageIdx >= pages - 1} on:click={() => pageIdx = Math.min(pages - 1, pageIdx + 1)}>Next →</button>
+    </div>
+  {:else}
+    <EmptyState title="No candidates match these filters." actionLabel="Clear filters" actionHref="#" />
+  {/if}
+</section>
 
 <style>
-  .ava {
-    width: 34px; height: 34px;
-    border-radius: 50%;
-    background: var(--surface-sunk);
-    color: var(--ink-2);
-    display: flex; align-items: center; justify-content: center;
-    font-size: 11px; font-weight: 600;
+  .filterbar {
+    margin-top: 18px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
   }
-  .table-wrap { max-height: calc(100vh - 280px); overflow: auto; }
+  .dgrid {
+    display: grid;
+    grid-template-columns: 1.8fr 80px 80px 1.4fr 1.1fr 1.3fr 100px 110px;
+    gap: 0;
+  }
+  .dh {
+    font-size: 10.5px;
+    font-weight: 700;
+    color: var(--ink-3);
+    text-transform: uppercase;
+    letter-spacing: .06em;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--line);
+  }
+  .dc {
+    padding: 12px;
+    border-bottom: 1px solid var(--line-soft);
+    color: var(--ink-2);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dc.strong { color: var(--ink); font-weight: 600; }
+  .dc.strong:hover { color: var(--brand); }
+  .dc.small { font-size: 11.5px; }
+  .stage-tag {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--brand-soft);
+    color: var(--brand-deep);
+  }
+  .pager {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    padding: 16px 0 4px;
+  }
 </style>

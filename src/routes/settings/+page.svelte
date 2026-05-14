@@ -1,7 +1,8 @@
 <script>
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
-  import { config, setConfig, refreshAll, disconnect, syncState, tabSummary, toast, DEFAULT_SHEET_URL } from '$lib/data/stores.js';
+  import { config, setConfig, refreshAll, disconnect, syncState, dataset, toast, DEFAULT_SHEET_URL } from '$lib/data/stores.js';
+  $: tabSummaryArr = $dataset.tabSummary || [];
 
   let sheetUrl = '';
   let refreshSec = 300;
@@ -149,20 +150,19 @@ function out_(text) {
       </div>
     {/if}
 
-    {#if $tabSummary.length}
+    {#if tabSummaryArr.length}
       <div class="card soft" style="padding:18px;margin-top:20px">
-        <div style="font-weight:700;font-size:13px;margin-bottom:8px">Tabs discovered ({$tabSummary.length})</div>
+        <div style="font-weight:700;font-size:13px;margin-bottom:8px">Tabs discovered ({tabSummaryArr.length})</div>
         <div class="tab-list">
-          {#each $tabSummary as t}
+          {#each tabSummaryArr as t}
             <div class="tab-row">
-              <span class="pill {t.kind === 'summary' ? 'brand' : t.kind === 'plan' ? 'ok' : t.kind === 'role-tracker' ? 'mauve' : t.kind === 'candidates' ? 'peach' : 'outline'}">{t.kind}</span>
+              <span class="pill outline">{t.kind}</span>
               <span class="mono" style="font-size:11px;color:var(--ink-3)">gid={t.gid}</span>
-              <span class="muted" style="font-size:11px">
+              <span style="font-size:12px;color:var(--ink);font-weight:600">{t.name}</span>
+              <span class="muted" style="font-size:11px;margin-left:auto">
                 {t.events != null ? `${t.events} events` : ''}
-                {t.role ? `· ${t.role}` : ''}
-                {t.planRows != null ? `${t.planRows} plan rows` : ''}
                 {t.candidates != null ? `${t.candidates} candidates` : ''}
-                {!t.events && !t.planRows && !t.candidates ? `${t.bytes} bytes` : ''}
+                {!t.events && !t.candidates ? `${t.rows || 0} rows` : ''}
               </span>
             </div>
           {/each}

@@ -1,61 +1,98 @@
-// Sheet URL handling.
-// Single-URL workflow: paste one Google Sheet URL and the portal auto-discovers
-// every tab, classifies it (summary / plan / role-tracker / etc.), and merges.
+// Fetch + merge the ProgramOps hiring sheet.
+//
+// The sheet has 44 named tabs. Each gid is mapped deterministically to its
+// role in the pipeline via TAB_MAP below. We fetch every tab in parallel,
+// parse with the right parser, and produce a unified data model keyed by
+// candidate (joined across role-app tabs + Details + per-stage tabs).
 
-import { classifyTab, parseMasterSummaryTab, parsePlanTab, parseRoleTrackerTab, parseCombinedTab, parseMasterSheet } from './parse.js';
+import {
+  parseRoleApplicationTab,
+  parseDetailsTab,
+  parseStageTab,
+  parseCandidatesDataTab,
+  parseRejectionTaxonomy,
+  parseStatusEnums,
+  parseDashboardData,
+  parseRaw,
+  nameKey,
+  classifyDecision,
+  STAGE_KEYS,
+  STAGE_INDEX,
+} from './parse.js';
 
-export function buildFetchUrl(input, opts = {}) {
-  const t = (input || '').trim();
-  if (!t) return null;
+export const DEFAULT_SHEET_ID = '1vhoYflwEKI-SnKSb95x-wKhL4vgMTSsbS0dVEvsxOuE';
+export const DEFAULT_SHEET_URL = `https://docs.google.com/spreadsheets/d/${DEFAULT_SHEET_ID}/edit?usp=sharing`;
 
-  if (/script\.google\.com\/macros\/s\//.test(t)) {
-    let url = t;
-    if (opts.sheet) url += (url.includes('?') ? '&' : '?') + 'sheet=' + encodeURIComponent(opts.sheet);
-    return url;
-  }
-
-  if (/\/pub(?:\?|\/)/.test(t) && /(?:output|format)=csv/.test(t)) return t;
-  if (/\/pub(?:\?|\/)/.test(t)) {
-    return t.includes('?') ? t + '&output=csv' : t + '?output=csv';
-  }
-
-  const m = t.match(/\/d\/([a-zA-Z0-9-_]+)/) || t.match(/^([a-zA-Z0-9-_]{30,})$/);
-  if (!m) return null;
-  const id = m[1];
-
-  const gid = opts.gid != null
-    ? String(opts.gid)
-    : (t.match(/[#&?]gid=(\d+)/)?.[1] || '');
-
-  let url = `https://docs.google.com/spreadsheets/d/${id}/export?format=csv`;
-  if (gid) url += `&gid=${gid}`;
-  return url;
-}
+// Deterministic mapping from gid → (kind, displayName, parser hint).
+// `kind` drives merging logic. `stageKey` (if present) is the canonical
+// stage key from parse.STAGES.
+export const TAB_MAP = {
+  '689156164':   { name: '📊 Dashboard',           kind: 'ignore' },
+  '698072942':   { name: 'Dashboard data',          kind: 'dashboardData' },
+  '187488553':   { name: 'PMA',                     kind: 'roleApp', role: 'PMA' },
+  '646589924':   { name: 'Resume Shortlisting - PMA', kind: 'roleShortlist', role: 'PMA' },
+  '651211669':   { name: 'Interview R1 - PMA',      kind: 'roleStage', role: 'PMA', stageKey: 'r1' },
+  '2112273250':  { name: 'PMA R2',                  kind: 'roleStage', role: 'PMA', stageKey: 'r2' },
+  '605256926':   { name: 'PM',                      kind: 'roleApp', role: 'PM' },
+  '416168819':   { name: 'Resume Shortlisting - PM', kind: 'roleShortlist', role: 'PM' },
+  '35565132':    { name: 'Interview R1 - PM',       kind: 'roleStage', role: 'PM', stageKey: 'r1' },
+  '1896011046':  { name: 'R2 - PM',                 kind: 'roleStage', role: 'PM', stageKey: 'r2' },
+  '396607892':   { name: 'R3 - PM',                 kind: 'roleStage', role: 'PM', stageKey: 'r3' },
+  '2006028202':  { name: 'COS',                     kind: 'roleApp', role: 'COS' },
+  '619962516':   { name: 'Resume Shortlisting - COS', kind: 'roleShortlist', role: 'COS' },
+  '1067762702':  { name: 'Interview R1 - COS',      kind: 'roleStage', role: 'COS', stageKey: 'r1' },
+  '1884677328':  { name: 'Interview R2 - COS',      kind: 'roleStage', role: 'COS', stageKey: 'r2' },
+  '167378717':   { name: 'Interview R3 - COS',      kind: 'roleStage', role: 'COS', stageKey: 'r3' },
+  '1032909525':  { name: 'Details',                 kind: 'details' },
+  '1480942623':  { name: 'Common DropDowns',        kind: 'statusEnums' },
+  '1938133357':  { name: 'Role Based DropDowns',    kind: 'rejectionTax' },
+  '749041276':   { name: 'Report',                  kind: 'raw' },
+  '1537233953':  { name: 'Sheet89',                 kind: 'raw' },
+  '1105935918':  { name: 'HeadHunting Sheet',       kind: 'raw' },
+  '567780607':   { name: 'Raw Data',                kind: 'raw' },
+  '1984825503':  { name: 'Data to Add in Candidates Data', kind: 'raw' },
+  '0':           { name: 'Candidates Data',         kind: 'candidatesData' },
+  '1040347175':  { name: 'BSF Responses',           kind: 'raw' },
+  '1691591316':  { name: 'BSF → Raw Staging',       kind: 'raw' },
+  '1838948044':  { name: 'CV Vetting Staging',      kind: 'raw' },
+  '1124731102':  { name: 'CV Vetting',              kind: 'stage', stageKey: 'bsf' },
+  '1784715601':  { name: 'TI Staging',              kind: 'raw' },
+  '1384870553':  { name: 'Telephonic Interview',    kind: 'stage', stageKey: 'ti' },
+  '850698559':   { name: 'TI Questionnaire',        kind: 'raw' },
+  '47675028':    { name: 'R1 Questionnaire',        kind: 'raw' },
+  '1410624870':  { name: 'Assignment Staging',      kind: 'raw' },
+  '213183006':   { name: 'Assignment',              kind: 'stage', stageKey: 'assignment' },
+  '525758960':   { name: 'Assignment Responses',    kind: 'raw' },
+  '1170354080':  { name: 'Assessment',              kind: 'stage', stageKey: 'assessment' },
+  '587522552':   { name: 'Assessment Responses',    kind: 'raw' },
+  '1088859135':  { name: 'Assessment Score',        kind: 'raw' },
+  '26965253':    { name: 'Interview R1 Staging',    kind: 'raw' },
+  '1828573776':  { name: 'HR Round 1',              kind: 'stage', stageKey: 'hr1' },
+  '1560801049':  { name: 'HR Round 2',              kind: 'stage', stageKey: 'hr2' },
+  '213008015':   { name: 'ES Round',                kind: 'stage', stageKey: 'es' },
+  '1717931262':  { name: 'Salary Negotiation',      kind: 'stage', stageKey: 'salNeg' },
+};
 
 export function extractSheetId(input) {
   const m = (input || '').match(/\/d\/([a-zA-Z0-9-_]+)/) || (input || '').match(/^([a-zA-Z0-9-_]{30,})$/);
   return m ? m[1] : null;
 }
 
-export async function fetchSheetCSV(url, opts = {}) {
-  const fetchUrl = buildFetchUrl(url, opts);
-  if (!fetchUrl) throw new Error('Could not parse the sheet URL.');
-  const cacheBust = (fetchUrl.includes('?') ? '&' : '?') + '_t=' + Date.now();
-  const res = await fetch(fetchUrl + cacheBust, { cache: 'no-store' });
-  if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+function buildCsvUrl(sheetId, gid) {
+  return `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv&gid=${gid}&_t=${Date.now()}`;
+}
+
+async function fetchCsv(sheetId, gid) {
+  const res = await fetch(buildCsvUrl(sheetId, gid), { cache: 'no-store' });
+  if (!res.ok) throw new Error(`HTTP ${res.status} for gid=${gid}`);
   const text = await res.text();
-  if (text.trim().startsWith('<')) {
-    throw new Error('Got HTML instead of CSV. Either the sheet is private or the share permission is set incorrectly.');
-  }
+  if (text.trim().startsWith('<')) throw new Error(`Got HTML for gid=${gid} — sheet is private`);
   return text;
 }
 
-// Discover every tab gid in a Google Sheet by scraping the public htmlview page.
-export async function discoverTabs(sheetUrl) {
-  const id = extractSheetId(sheetUrl);
-  if (!id) return [];
+async function discoverGids(sheetId) {
   const res = await fetch(
-    `https://docs.google.com/spreadsheets/d/${id}/htmlview?_t=${Date.now()}`,
+    `https://docs.google.com/spreadsheets/d/${sheetId}/htmlview?_t=${Date.now()}`,
     { cache: 'no-store' }
   );
   if (!res.ok) return [];
@@ -63,109 +100,221 @@ export async function discoverTabs(sheetUrl) {
   return [...new Set([...html.matchAll(/gid=(\d+)/g)].map(m => m[1]))];
 }
 
-/**
- * Fetch every tab in the sheet, classify by content, and return a merged
- * dataset. Any tab the classifier doesn't recognize is included in `unknown`
- * for surfacing.
- */
+// ---------- Candidate merger ----------
+function emptyCandidate(name) {
+  return {
+    uid: '',
+    name,
+    nameKey: nameKey(name),
+    role: '',
+    phone: '',
+    email: '',
+    nativeLanguage: '',
+    currentLocation: '',
+    location: '',
+    sourceName: '',
+    sourceCategory: '',
+    currentCTC: '',
+    expectedCTC: '',
+    currentCompany: '',
+    noticePeriod: '',
+    resumeLink: '',
+    linkedinUrl: '',
+    timestamp: '',
+    timestampDate: null,
+    application: null,          // role-app tab record
+    details: null,              // Details tab record
+    stages: {},                 // stageKey → record
+    stageKeysPresent: [],       // ordered by STAGE_INDEX
+    currentStage: '',
+    currentStageStatus: '',
+    currentStageDate: null,
+    finalDecision: 'active',    // active | hired | rejected
+    rejectionStage: '',
+    rejectionReason: '',
+    panelists: [],              // unique panelists across stages
+  };
+}
+
+function mergeCandidate(cand, src, kind) {
+  for (const k of ['mobile','phone','email','nativeLanguage','currentLocation','location',
+    'sourceName','sourceCategory','currentCTC','expectedCTC','currentCompany',
+    'noticePeriod','resumeLink','linkedinUrl']) {
+    if (!cand[k] && src[k]) cand[k] = src[k];
+  }
+  // Mobile → phone fallback
+  if (!cand.phone && src.mobile) cand.phone = src.mobile;
+  if (kind === 'roleApp') {
+    cand.role = cand.role || src.role;
+    cand.application = src;
+    cand.timestamp = src.timestamp;
+    cand.timestampDate = src.timestampDate;
+  } else if (kind === 'details') {
+    cand.details = src;
+    if (!cand.role && src.role) cand.role = src.role.replace(/\s+\d+$/, '');  // "PM 2" → "PM"
+    if (!cand.location && src.location) cand.location = src.location;
+  } else if (kind === 'stage') {
+    if (src.uid && !cand.uid) cand.uid = src.uid;
+    cand.stages[src.stage] = src;
+    if (src.panelist && !cand.panelists.includes(src.panelist)) cand.panelists.push(src.panelist);
+  }
+}
+
+function finalizeCandidate(c) {
+  // Determine current stage = highest STAGE_INDEX among populated stages,
+  // with role-app counting as 'sourced' if no later stage exists.
+  const stageKeys = Object.keys(c.stages);
+  stageKeys.sort((a, b) => (STAGE_INDEX[a] ?? -1) - (STAGE_INDEX[b] ?? -1));
+  c.stageKeysPresent = stageKeys;
+
+  let latestKey = stageKeys[stageKeys.length - 1];
+  if (!latestKey) latestKey = c.application ? 'sourced' : '';
+
+  c.currentStage = latestKey;
+  if (latestKey && c.stages[latestKey]) {
+    c.currentStageStatus = c.stages[latestKey].status || '';
+    c.currentStageDate = c.stages[latestKey].parsedDate;
+  } else if (c.application) {
+    c.currentStageStatus = c.application.selectStatus || 'sourced';
+    c.currentStageDate = c.application.timestampDate;
+  }
+
+  // Final decision: rejection stage wins, then 'hired' if joined/offer, else active
+  let finalDecision = 'active';
+  let rejStage = '', rejReason = '';
+  for (const k of stageKeys) {
+    const s = c.stages[k];
+    if (s.decision === 'rejected') {
+      finalDecision = 'rejected';
+      rejStage = k;
+      rejReason = [s.rejectionCategory, s.rejectionSub].filter(Boolean).join(' · ');
+      break;
+    }
+    if (s.decision === 'hired') finalDecision = 'hired';
+  }
+  if (c.application?.selectStatus === 'rejected' && finalDecision === 'active') {
+    finalDecision = 'rejected';
+    rejStage = 'sourced';
+  }
+  c.finalDecision = finalDecision;
+  c.rejectionStage = rejStage;
+  c.rejectionReason = rejReason;
+}
+
+// ---------- Main entry ----------
 export async function fetchAndMergeAllTabs(sheetUrl) {
-  if (!sheetUrl) {
-    return { roleStats: {}, plan: [], activities: [], candidates: [], tabSummary: [], warnings: ['No sheet URL configured.'] };
-  }
-  const id = extractSheetId(sheetUrl);
-  if (!id) {
-    return { roleStats: {}, plan: [], activities: [], candidates: [], tabSummary: [], warnings: ['Could not extract sheet ID from URL.'] };
-  }
+  const sheetId = extractSheetId(sheetUrl) || DEFAULT_SHEET_ID;
+  const discovered = await discoverGids(sheetId);
+  const gids = discovered.length ? discovered : Object.keys(TAB_MAP);
 
-  const gids = await discoverTabs(sheetUrl);
-  if (!gids.length) {
-    return { roleStats: {}, plan: [], activities: [], candidates: [], tabSummary: [], warnings: ['No tabs discovered. Check sharing permissions (must be "Anyone with the link can view").'] };
-  }
-
-  // Fetch every tab in parallel
+  // Fetch all in parallel
   const fetches = await Promise.allSettled(
-    gids.map(async gid => {
-      const text = await fetchSheetCSV(sheetUrl, { gid });
-      return { gid, text };
-    })
+    gids.map(async gid => ({ gid, text: await fetchCsv(sheetId, gid) }))
   );
 
-  // Classify + parse each fulfilled fetch
-  let roleStats = {};
-  let plan = [];
-  let activities = [];
-  let candidates = [];
   const tabSummary = [];
   const warnings = [];
+  const rawTabs = {};               // gid → { headers, rows } for raw viewer
+
+  const applications = [];          // role-app rows
+  const details = [];               // Details rows
+  const stageEvents = [];           // per-stage records
+  let candidatesDataSchema = null;
+  let rejectionTaxonomy = null;
+  let statusEnums = null;
+  let dashboardData = null;
 
   for (const r of fetches) {
     if (r.status !== 'fulfilled') {
-      warnings.push(`Tab fetch failed: ${r.reason?.message || r.reason}`);
+      warnings.push(String(r.reason?.message || r.reason));
       continue;
     }
     const { gid, text } = r.value;
-    const kind = classifyTab(text);
-    const row = { gid, kind, bytes: text.length, rows: text.split('\n').length };
-    tabSummary.push(row);
+    const meta = TAB_MAP[gid] || { name: `Tab ${gid}`, kind: 'raw' };
+    const bytes = text.length;
+    const rowCount = text.split('\n').length;
+    const summary = { gid, name: meta.name, kind: meta.kind, bytes, rows: rowCount };
+    tabSummary.push(summary);
 
-    if (kind === 'summary') {
-      const s = parseMasterSummaryTab(text);
-      // Merge — later tabs of the same type win (rare but safe)
-      Object.assign(roleStats, s.roleStats);
-      if (s.planRich.length) row.planRows = s.planRich.length;
-      // Only adopt summary's plan if we don't already have a dedicated plan tab
-      if (!plan.length && s.planRich.length) plan = s.planRich;
+    // Always parse for the raw viewer
+    rawTabs[gid] = { ...meta, gid, ...parseRaw(text) };
 
-    } else if (kind === 'plan') {
-      const p = parsePlanTab(text);
-      // Dedicated plan tab wins over summary's embedded plan
-      plan = p;
-      row.planRows = p.length;
+    if (meta.kind === 'roleApp') {
+      const recs = parseRoleApplicationTab(text, meta.role);
+      summary.candidates = recs.length;
+      applications.push(...recs);
+    } else if (meta.kind === 'roleShortlist') {
+      const recs = parseRoleApplicationTab(text, meta.role);
+      summary.candidates = recs.length;
+      // Treat shortlist tab as same role-app stream (recruiter-reviewed slice)
+      applications.push(...recs);
+    } else if (meta.kind === 'roleStage') {
+      // Per-role stage tab (e.g. "Interview R1 - PMA"). Parse as generic stage
+      // and tag with both stage and role.
+      const recs = parseStageTab(text, meta.stageKey);
+      for (const rec of recs) rec.role = meta.role;
+      summary.events = recs.length;
+      stageEvents.push(...recs);
+    } else if (meta.kind === 'stage') {
+      const recs = parseStageTab(text, meta.stageKey);
+      summary.events = recs.length;
+      stageEvents.push(...recs);
+    } else if (meta.kind === 'details') {
+      const recs = parseDetailsTab(text);
+      summary.candidates = recs.length;
+      details.push(...recs);
+    } else if (meta.kind === 'candidatesData') {
+      candidatesDataSchema = parseCandidatesDataTab(text);
+    } else if (meta.kind === 'rejectionTax') {
+      rejectionTaxonomy = parseRejectionTaxonomy(text);
+    } else if (meta.kind === 'statusEnums') {
+      statusEnums = parseStatusEnums(text);
+    } else if (meta.kind === 'dashboardData') {
+      dashboardData = parseDashboardData(text);
+    }
+    // 'raw' / 'ignore' fall through — only included in rawTabs
+  }
 
-    } else if (kind === 'role-tracker') {
-      const acts = parseRoleTrackerTab(text);
-      row.role = acts[0]?.role || '?';
-      row.events = acts.length;
-      activities.push(...acts);
+  // ---------- Merge into candidates keyed by (uid OR nameKey) ----------
+  const byKey = new Map();
+  const upsertByName = (name) => {
+    const key = nameKey(name);
+    if (!key) return null;
+    if (!byKey.has(key)) byKey.set(key, emptyCandidate(name));
+    return byKey.get(key);
+  };
 
-    } else if (kind === 'combined') {
-      const c = parseCombinedTab(text);
-      // Combined is treated as a SUPPLEMENT to per-role tabs — only adopt
-      // its data if we have nothing from dedicated tabs.
-      if (!activities.length) activities = c.activities;
-      if (!plan.length) plan = c.plan;
-      row.events = c.activities.length;
-      row.planRows = c.plan.length;
-
-    } else if (kind === 'unknown') {
-      // Could be a candidate roster (UID, Candidate Name, ...)
-      // Try parsing as the master per-candidate sheet — keep if any candidates parse.
-      const m = parseMasterSheet(text);
-      if (m.candidates.length > 0) {
-        row.kind = 'candidates';
-        row.candidates = m.candidates.length;
-        candidates.push(...m.candidates);
-      }
+  for (const app of applications) {
+    const c = upsertByName(app.name);
+    if (c) mergeCandidate(c, app, 'roleApp');
+  }
+  for (const d of details) {
+    const c = upsertByName(d.name);
+    if (c) mergeCandidate(c, d, 'details');
+  }
+  for (const ev of stageEvents) {
+    const c = upsertByName(ev.name);
+    if (c) {
+      if (ev.role && !c.role) c.role = ev.role;
+      mergeCandidate(c, ev, 'stage');
     }
   }
 
-  // Deduplicate activities (in case combined + per-role both contributed)
-  const seen = new Set();
-  activities = activities.filter(a => {
-    const k = `${a.role}|${a.stage}|${(a.name || '').toLowerCase()}|${a.date}`;
-    if (seen.has(k)) return false;
-    seen.add(k);
-    return true;
-  });
+  for (const c of byKey.values()) finalizeCandidate(c);
+  const candidates = [...byKey.values()];
 
-  // Deduplicate candidates by name
-  const seenC = new Set();
-  candidates = candidates.filter(c => {
-    const k = (c.__name || '').toLowerCase();
-    if (!k || seenC.has(k)) return false;
-    seenC.add(k);
-    return true;
-  });
-
-  return { roleStats, plan, activities, candidates, tabSummary, warnings };
+  return {
+    sheetId,
+    tabSummary,
+    warnings,
+    rawTabs,
+    applications,
+    details,
+    stageEvents,
+    candidates,
+    candidatesDataSchema,
+    rejectionTaxonomy,
+    statusEnums,
+    dashboardData,
+  };
 }

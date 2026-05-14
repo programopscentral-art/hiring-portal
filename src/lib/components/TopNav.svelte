@@ -7,11 +7,13 @@
 
   // hrefs are stored without base prefix; we add `base` everywhere they're used
   const items = [
-    { href: '/',           label: 'Dashboard' },
-    { href: '/plan',       label: 'Plan' },
-    { href: '/funnel',     label: 'Funnel' },
+    { href: '/',           label: 'Overview' },
+    { href: '/pipeline',   label: 'Pipeline' },
     { href: '/candidates', label: 'Candidates' },
-    { href: '/analytics',  label: 'Analytics' },
+    { href: '/locations',  label: 'Locations' },
+    { href: '/roles',      label: 'Roles' },
+    { href: '/insights',   label: 'Insights' },
+    { href: '/raw',        label: 'Raw' },
   ];
 
   $: path = $page.url.pathname;

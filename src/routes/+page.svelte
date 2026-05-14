@@ -1,416 +1,249 @@
 <script>
-  import { data, planProgress, stateSummary, syncState, monthlyTrend, recentFeed, config } from '$lib/data/stores.js';
-  import { fade, fly } from 'svelte/transition';
-  import { quintOut } from 'svelte/easing';
+  import { base } from '$app/paths';
   import StatCard from '$lib/components/StatCard.svelte';
-  import UniversityCard from '$lib/components/UniversityCard.svelte';
-  import IndiaMap from '$lib/components/IndiaMap.svelte';
+  import Funnel from '$lib/components/Funnel.svelte';
+  import MonthlyBarChart from '$lib/components/MonthlyBarChart.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import StatusPill from '$lib/components/StatusPill.svelte';
-  import Sparkline from '$lib/components/Sparkline.svelte';
-  import InterviewChart from '$lib/components/InterviewChart.svelte';
-  import Filters from '$lib/components/Filters.svelte';
-  import { filters } from '$lib/data/stores.js';
-  import { goto } from '$app/navigation';
-  import { base } from '$app/paths';
+  import {
+    dataset, kpis, funnel, roleStats, monthlyVolume, byState, bySource, recentActivity, syncState,
+    STAGES, ROLES,
+  } from '$lib/data/stores.js';
 
-  $: hasData = $data.candidates.length || $data.activities.length || $data.plan.length;
-  // The portal is auto-connected to a default sheet — only show "no data"
-  // states based on whether the fetch returned anything.
-  $: notConnected = false;
-
-  let activeUniversity = '';
-
-  $: universities = (() => {
-    const byKey = new Map();
-    for (const p of $data.plan) {
-      const k = `${p.state}::${p.location}`;
-      if (!byKey.has(k)) byKey.set(k, {
-        name: p.location, state: p.state, type: p.type,
-        positions: 0, hired: 0, totalCtc: 0, roles: {}
-      });
-      const u = byKey.get(k);
-      u.positions += p.positions;
-      if (p.hired) u.hired += p.positions;
-      u.totalCtc += (p.totalCtc || 0);
-      u.roles[p.role] = (u.roles[p.role] || 0) + p.positions;
-    }
-    return [...byKey.values()].sort((a, b) => b.positions - a.positions);
-  })();
-
-  $: filtered = universities.filter(u =>
-    (!$filters.state || u.state === $filters.state) &&
-    (!$filters.role  || Object.keys(u.roles).includes($filters.role)) &&
-    (!$filters.university || u.name === $filters.university)
-  );
-
-  $: trendData = $monthlyTrend.slice(-12);
-
-  // Final-round interview selections from activities. These are people who
-  // got "Selected in Interview R3" (or R2 if no R3 stage exists for that role).
-  $: finalSelections = (() => {
-    const byRole = {};
-    for (const a of $data.activities) {
-      if (a.decision !== 'selected') continue;
-      if (!byRole[a.role]) byRole[a.role] = {};
-      byRole[a.role][a.stage] = (byRole[a.role][a.stage] || 0) + 1;
-    }
-    let total = 0;
-    for (const r of Object.keys(byRole)) {
-      // Final stage = highest R-stage present
-      const stages = Object.keys(byRole[r]).filter(s => /^R\d/.test(s));
-      const finalStage = stages.sort().pop();
-      if (finalStage) total += byRole[r][finalStage] || 0;
-    }
-    return total;
-  })();
-
-  // The actual hired list — plan rows marked "Hired"
-  $: hiredList = $data.plan.filter(p => p.hired);
-
-  $: kpis = (() => {
-    const t = $planProgress.totals;
-    const masterFilled = $data.candidates.filter(c => (c.__joiningStatus || '').toLowerCase() === 'joined').length;
-    const planHired = t.filled || 0;
-    const inPipe = $data.activities.filter(a => a.decision === 'selected' || a.decision === 'hold').length;
-    return {
-      states: new Set($data.plan.map(p => p.state)).size,
-      universities: new Set($data.plan.map(p => p.location)).size,
-      positions: t.positions,
-      hired: Math.max(planHired, masterFilled),
-      planHired,
-      finalSelections,
-      open: (t.positions || 0) - planHired,
-      pipeline: inPipe,
-      totalCtc: t.totalCtc || 0,
-    };
-  })();
-
-  function fmtCtc(n) {
-    if (!n) return '—';
-    if (n >= 100) return `₹${(n / 100).toFixed(2)} Cr`;
-    return `₹${Math.round(n)} L`;
-  }
+  function fmt(n) { return (n || 0).toLocaleString(); }
 </script>
 
-<svelte:head><title>Dashboard · Hiring Portal</title></svelte:head>
-
-{#if notConnected}
-  <section class="hero card pad-lg fade-up" style="background:linear-gradient(135deg, var(--brand-soft) 0%, var(--surface) 100%);border-color:var(--brand)">
-    <div style="max-width:680px">
-      <div class="pill" style="background:var(--ink);color:var(--brand-soft);margin-bottom:18px;padding:6px 14px">⚡ Get started</div>
-      <h1 class="display" style="font-size:var(--t-display);margin-bottom:18px;color:var(--ink)">
-        Hire with <span style="background:var(--brand);padding:0 8px;border-radius:8px;color:#fff">intent.</span><br/>
-        See the entire pipeline.
-      </h1>
-      <p class="muted" style="font-size:17px;line-height:1.55;margin-bottom:28px;color:var(--ink-3)">
-        Connect your master tracker and weekly activity sheet — the portal will visualize plan vs. actuals across every state, university, and role for the cycle.
-      </p>
-      <a href="{base}/settings" class="btn brand lg">Connect your sheets →</a>
-    </div>
-  </section>
-
-{:else if !hasData && $syncState.status === 'syncing'}
-  <div class="kpi-grid">
-    {#each Array(4) as _, i}
-      <div class="skeleton" style="height:152px;animation-delay:{i*60}ms"></div>
-    {/each}
-  </div>
-  <div class="skeleton" style="height:520px"></div>
-
-{:else if !hasData}
-  <EmptyState
-    title="No data loaded yet"
-    body="The sheets are connected, but no rows came back. Check that the tabs have content and that the share permission allows access."
-    actionLabel="Open Settings"
-    actionHref="/settings"
-  />
-
-{:else}
+<svelte:head><title>Overview · Hiring Portal</title></svelte:head>
 
 <header class="page-head fade-up">
   <div>
-    <div class="crumb">Hiring · 2026 cycle</div>
-    <h1>Where are we, <span class="accent">today.</span></h1>
+    <div class="crumb">Hiring portal</div>
+    <h1 class="serif">Overview</h1>
+    <p class="muted lead">
+      {fmt($kpis.total)} candidates across {ROLES.length} roles and {STAGES.length} pipeline stages.
+      {#if $syncState.status === 'ok'}<span class="ok-dot"></span>{:else if $syncState.status === 'error'}<span class="bad-dot"></span>{/if}
+      <span class="muted">{$syncState.message || '—'}</span>
+    </p>
   </div>
-  <Filters />
 </header>
 
-<!-- KPI strip -->
-<section class="kpi-grid stagger">
-  <StatCard label="Total positions" value={kpis.positions} kind="brand" delta={`${kpis.universities} unis · ${kpis.states} states`} icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>' />
-  <StatCard label="Hired" value={kpis.hired} kind="ink" delta={kpis.positions ? `${Math.round((kpis.hired / kpis.positions) * 100)}% of plan filled` : ''} icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12l5 5L20 7" stroke-linecap="round" stroke-linejoin="round"/></svg>' />
-  <StatCard label="Final selections" value={kpis.finalSelections} kind="peach" delta="passed last interview" icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3 7h7l-5.5 4 2 7-6.5-4.5L5.5 22l2-7L2 11h7l3-9z"/></svg>' />
-  <StatCard label="Open positions" value={kpis.open} kind="mauve" delta={`${kpis.pipeline} candidates in pipeline`} icon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></svg>' />
+<section class="kpi-grid">
+  <StatCard label="Total candidates" value={$kpis.total} kind="ink" />
+  <StatCard label="Active in pipeline" value={$kpis.active} kind="brand" />
+  <StatCard label="In final stages" value={$kpis.finals} kind="peach" />
+  <StatCard label="Hired" value={$kpis.hired} kind="mauve" />
+  <StatCard label="Rejected" value={$kpis.rejected} />
+  <StatCard label="New this month" value={$kpis.thisMonth} />
 </section>
 
-<!-- Map row — full width, dominant -->
-<section class="card fade-up" style="padding:0;overflow:hidden;margin-bottom:32px;animation-delay:200ms">
-  <div class="map-section">
-    <div class="map-info">
-      <div class="crumb">Geography</div>
-      <h2 class="display" style="font-size:var(--t-h2);margin-top:6px;margin-bottom:14px">Where we hire across India</h2>
-      <p class="muted" style="font-size:13.5px;line-height:1.55;margin-bottom:20px;color:var(--ink-3)">
-        Each pin is a partner university. Larger pins = more positions. Hover to see roles, hires, and CTC. States with active hiring are tinted lime.
-      </p>
-      <div class="map-tags">
-        {#each [...new Set(filtered.map(u => u.state))].sort() as state}
-          <span class="pill brand">{state}</span>
+<section class="row gap" style="margin-top:24px;align-items:flex-start">
+  <div class="card pad-lg" style="flex:1;min-width:0">
+    <div class="row between" style="align-items:center;margin-bottom:14px">
+      <h2 class="serif" style="font-size:22px">Pipeline funnel</h2>
+      <a class="btn ghost sm" href="{base}/pipeline">View pipeline →</a>
+    </div>
+    {#if $funnel.length && $funnel[0].count > 0}
+      <Funnel stages={$funnel.map(s => ({ stage: s.label, count: s.count }))} accent="brand" />
+    {:else}
+      <EmptyState title="Funnel will populate after sync." body="Once candidates flow through stages, you'll see the carry-through chart here." />
+    {/if}
+  </div>
+
+  <div class="card pad-lg" style="width:380px;flex-shrink:0">
+    <h2 class="serif" style="font-size:22px;margin-bottom:14px">By role</h2>
+    <div class="roles">
+      {#each ROLES as r}
+        {@const s = $roleStats[r] || { total:0, active:0, hired:0, rejected:0 }}
+        <a class="role-row" href="{base}/roles/{r}">
+          <div class="role-pill {r.toLowerCase()}">{r}</div>
+          <div class="grow">
+            <div class="role-total mono">{fmt(s.total)}</div>
+            <div class="role-meta muted">
+              <span class="ok">{fmt(s.active)} active</span> ·
+              <span>{fmt(s.hired)} hired</span> ·
+              <span>{fmt(s.rejected)} rejected</span>
+            </div>
+          </div>
+          <div class="arrow">→</div>
+        </a>
+      {/each}
+    </div>
+  </div>
+</section>
+
+<section class="row gap" style="margin-top:24px;align-items:flex-start">
+  <div class="card pad-lg" style="flex:1;min-width:0">
+    <h2 class="serif" style="font-size:22px;margin-bottom:14px">Application volume by month</h2>
+    {#if $monthlyVolume.length}
+      <MonthlyBarChart
+        data={$monthlyVolume}
+        series={[
+          { key: 'PMA', label: 'PMA', color: 'var(--brand)' },
+          { key: 'PM',  label: 'PM',  color: 'var(--mauve)' },
+          { key: 'COS', label: 'COS', color: 'var(--olive)' },
+          { key: 'BOA', label: 'BOA', color: 'var(--gold)' },
+        ]}
+      />
+    {:else}
+      <EmptyState title="No timestamped applications yet." />
+    {/if}
+  </div>
+
+  <div class="card pad-lg" style="width:380px;flex-shrink:0">
+    <h2 class="serif" style="font-size:22px;margin-bottom:14px">Top states</h2>
+    {#if $byState.length}
+      <div class="state-list">
+        {#each $byState.slice(0, 8) as st}
+          {@const pct = st.total / $byState[0].total}
+          <a class="state-row" href="{base}/locations/{encodeURIComponent(st.state)}">
+            <div class="state-name">{st.state}</div>
+            <div class="state-bar"><div class="state-fill" style="width:{Math.max(8, pct * 100)}%"></div></div>
+            <div class="state-count mono">{fmt(st.total)}</div>
+          </a>
         {/each}
       </div>
-    </div>
-    <div class="map-canvas">
-      <IndiaMap
-        universities={universities}
-        activeState={$filters.state}
-        {activeUniversity}
-        onSelect={(u) => activeUniversity = activeUniversity === u.name ? '' : u.name}
-        onSelectState={(s) => filters.update(f => ({ ...f, state: s }))}
-      />
-    </div>
-  </div>
-</section>
-
-<!-- University locations grid -->
-<section class="fade-up" style="animation-delay:300ms">
-  <div class="section-h">
-    <div class="title">
-      <h2>University locations</h2>
-      <span class="count">{filtered.length} of {universities.length}</span>
-    </div>
-    <div class="actions">
-      {#if activeUniversity}
-        <button class="btn ghost sm" on:click={() => activeUniversity = ''}>
-          <span class="dot live"></span> {activeUniversity}
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
-        </button>
-      {/if}
-      <a href="{base}/plan" class="btn ghost sm">All plan →</a>
-    </div>
-  </div>
-
-  {#if filtered.length}
-    <div class="uni-grid">
-      {#each filtered.slice(0, 12) as u, i (u.state + u.name)}
-        <UniversityCard
-          university={u}
-          active={activeUniversity === u.name}
-          index={i}
-          onSelect={() => goto(`${base}/plan?state=${encodeURIComponent(u.state)}`)}
-        />
-      {/each}
-    </div>
-    {#if filtered.length > 12}
-      <div style="text-align:center;margin-top:24px">
-        <a href="{base}/plan" class="btn">View all {filtered.length} locations →</a>
-      </div>
+      <a class="btn ghost sm full" href="{base}/locations" style="margin-top:10px">All states & universities →</a>
+    {:else}
+      <EmptyState title="No state data yet." />
     {/if}
-  {:else}
-    <div class="empty">No universities match the current filters.</div>
-  {/if}
-</section>
-
-<!-- Hired roster — explicit list of which positions are filled -->
-{#if hiredList.length}
-  <section class="card pad fade-up" style="margin-top:32px;animation-delay:350ms">
-    <div class="section-h">
-      <div class="title">
-        <h2>Recent hires</h2>
-        <span class="count">{hiredList.length} filled · {Math.round(((kpis.hired) / kpis.positions) * 100)}% of plan</span>
-      </div>
-      <a href="{base}/plan" class="btn ghost sm">Full plan →</a>
-    </div>
-    <div class="hire-grid">
-      {#each hiredList as h, i (h.state + h.location + h.role + i)}
-        <div class="hire-pill" in:fly={{ y: 6, delay: i * 40, duration: 360, easing: quintOut }}>
-          <div class="hire-check">
-            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5L20 7"/></svg>
-          </div>
-          <div class="grow" style="min-width:0">
-            <div class="hire-uni">{h.location}</div>
-            <div class="hire-meta">{h.state} · <span class="hire-role">{h.role}</span></div>
-          </div>
-        </div>
-      {/each}
-    </div>
-  </section>
-{/if}
-
-<!-- Bottom row: trend + recent activity -->
-<section class="bottom-row fade-up" style="animation-delay:400ms">
-  <div class="card pad">
-    <div class="row between" style="margin-bottom:14px">
-      <div>
-        <div class="crumb">Last 12 months</div>
-        <div class="display" style="font-size:20px;margin-top:4px;font-weight:700">Interview volume</div>
-      </div>
-      <a href="{base}/analytics" class="btn ghost sm">Trends →</a>
-    </div>
-    <InterviewChart data={trendData} height={200} color="var(--brand)" colorDeep="var(--brand-deep)" />
-  </div>
-
-  <div class="card pad">
-    <div class="row between" style="margin-bottom:14px">
-      <div class="display" style="font-size:20px;font-weight:700">Recent activity</div>
-      <a href="{base}/candidates" class="btn ghost sm">All →</a>
-    </div>
-    <div class="feed">
-      {#each $recentFeed.slice(0, 5) as e, i (i + (e.name || '') + e.stage)}
-        <div class="feed-row" in:fly={{ y: 6, delay: i * 30, duration: 320, easing: quintOut }}>
-          <div class="feed-dot {e.decision || ''}"></div>
-          <div class="feed-text">
-            <div class="feed-name">{e.name || '—'}</div>
-            <div class="feed-meta">{e.role} {e.stage} · {e.parsedDate?.toLocaleDateString() || e.date}</div>
-          </div>
-          <StatusPill decision={e.decision} />
-        </div>
-      {:else}
-        <div class="empty">No activity yet.</div>
-      {/each}
-    </div>
   </div>
 </section>
 
-{/if}
+<section class="row gap" style="margin-top:24px;align-items:flex-start">
+  <div class="card pad-lg" style="flex:1.2;min-width:0">
+    <div class="row between" style="margin-bottom:14px;align-items:center">
+      <h2 class="serif" style="font-size:22px">Recent activity</h2>
+      <span class="muted" style="font-size:12px">{$recentActivity.length} events</span>
+    </div>
+    {#if $recentActivity.length}
+      <div class="feed">
+        {#each $recentActivity.slice(0, 20) as ev}
+          <a class="feed-row" href="{base}/candidates/{encodeURIComponent(ev.nameKey)}">
+            <div class="feed-date mono">{ev.parsedDate?.toLocaleDateString() || '—'}</div>
+            <div class="feed-stage">{STAGES.find(s => s.key === ev.stage)?.short || ev.stage}</div>
+            <div class="feed-name grow">{ev.name}</div>
+            <StatusPill decision={ev.decision} />
+          </a>
+        {/each}
+      </div>
+    {:else}
+      <EmptyState title="Activity will appear as candidates move through stages." />
+    {/if}
+  </div>
+
+  <div class="card pad-lg" style="flex:1;min-width:0">
+    <h2 class="serif" style="font-size:22px;margin-bottom:14px">Top sources</h2>
+    {#if $bySource.length}
+      <div class="src-list">
+        {#each $bySource.slice(0, 10) as s}
+          <div class="src-row">
+            <div class="src-name">{s.source}</div>
+            <div class="src-bar"><div class="src-fill" style="width:{Math.max(6, (s.total / $bySource[0].total) * 100)}%"></div></div>
+            <div class="src-meta mono">
+              <span>{fmt(s.total)}</span>
+              {#if s.hired}<span class="ok">· {fmt(s.hired)} hired</span>{/if}
+            </div>
+          </div>
+        {/each}
+      </div>
+    {:else}
+      <EmptyState title="Source data will appear after sync." />
+    {/if}
+  </div>
+</section>
 
 <style>
-  .hero { animation: fadeUp 600ms var(--ease) backwards; }
-
-  /* Map section: side-by-side info + canvas */
-  .map-section {
+  .kpi-grid {
     display: grid;
-    grid-template-columns: 320px 1fr;
-    min-height: 540px;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 18px;
   }
-  @media (max-width: 1100px) {
-    .map-section { grid-template-columns: 1fr; }
-  }
-  .map-info {
-    padding: 32px;
-    border-right: 1px solid var(--line);
-    display: flex; flex-direction: column;
-    background: var(--surface);
-  }
-  @media (max-width: 1100px) {
-    .map-info { border-right: 0; border-bottom: 1px solid var(--line); }
-  }
-  .map-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: auto; }
-  .map-canvas { padding: 24px; min-height: 540px; }
-  @media (max-width: 1100px) { .map-canvas { min-height: 460px; } }
+  @media (max-width: 1280px) { .kpi-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 720px)  { .kpi-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
-  /* University grid */
-  .uni-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(290px, 1fr));
-    gap: var(--s-4);
-  }
-  @media (max-width: 700px) { .uni-grid { grid-template-columns: 1fr; } }
+  .lead { margin-top: 6px; max-width: 760px; }
+  .ok-dot, .bad-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin: 0 4px 0 8px; vertical-align: middle; }
+  .ok-dot { background: var(--ok); }
+  .bad-dot { background: var(--bad); }
 
-  /* Bottom row */
-  .bottom-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-    gap: var(--s-4);
-    margin-top: var(--s-7);
-  }
-  @media (max-width: 900px) { .bottom-row { grid-template-columns: minmax(0, 1fr); } }
-
-  .feed {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    width: 100%;
-    min-width: 0;
-    overflow: hidden;
-  }
-  .feed-row {
-    display: grid;
-    grid-template-columns: 8px minmax(0, 1fr) max-content;
-    align-items: center;
-    gap: 10px;
-    padding: 8px 6px;
-    border-radius: 10px;
-    transition: background var(--t-fast) var(--ease);
-    width: 100%;
-    min-width: 0;
-    box-sizing: border-box;
-    overflow: hidden;
-  }
-  .feed-row:hover { background: var(--brand-soft-2); }
-  .feed-dot { width: 8px; height: 8px; border-radius: 99px; background: var(--muted-2); }
-  .feed-dot.selected { background: var(--ok); }
-  .feed-dot.rejected { background: var(--bad); }
-  .feed-dot.hold { background: var(--warn); }
-  .feed-dot.rescheduled { background: var(--mauve); }
-
-  .feed-text {
-    min-width: 0;
-    overflow: hidden;
-  }
-  .feed-name {
-    font-size: 13px;
-    font-weight: 700;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .feed-meta {
-    font-size: 11px;
-    color: var(--ink-3);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* Recent hires */
-  .hire-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    gap: 10px;
-  }
-  .hire-pill {
-    display: flex;
-    align-items: center;
-    gap: 10px;
+  .roles { display: flex; flex-direction: column; gap: 6px; }
+  .role-row {
+    display: flex; align-items: center; gap: 14px;
     padding: 12px 14px;
-    background: var(--ok-soft);
-    border: 1px solid color-mix(in srgb, var(--ok) 30%, transparent);
+    border-radius: var(--r-md);
+    border: 1px solid var(--line);
+    background: var(--surface-soft);
+    transition: all var(--t-fast) var(--ease);
+  }
+  .role-row:hover { border-color: var(--brand); background: var(--surface); transform: translateX(2px); }
+  .role-pill {
+    width: 48px; height: 48px;
     border-radius: 12px;
-    transition: transform var(--t-fast) var(--ease), box-shadow var(--t-fast) var(--ease);
-  }
-  .hire-pill:hover {
-    transform: translateY(-2px);
-    box-shadow: var(--shadow-sm);
-  }
-  .hire-check {
-    width: 22px; height: 22px;
-    border-radius: 50%;
-    background: var(--ok);
-    color: #fff;
     display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 13px; color: #fff;
     flex-shrink: 0;
   }
-  .hire-uni {
-    font-weight: 700;
+  .role-pill.pma { background: var(--brand); }
+  .role-pill.pm  { background: var(--mauve); }
+  .role-pill.cos { background: var(--olive); }
+  .role-pill.boa { background: var(--gold); }
+  .role-total { font-size: 18px; font-weight: 800; color: var(--ink); }
+  .role-meta { font-size: 11px; margin-top: 2px; }
+  .role-meta .ok { color: var(--ok); font-weight: 600; }
+  .arrow { color: var(--ink-3); font-size: 16px; }
+
+  .state-list { display: flex; flex-direction: column; gap: 4px; }
+  .state-row {
+    display: grid;
+    grid-template-columns: 110px 1fr 48px;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 10px;
+    border-radius: var(--r-sm);
+    transition: background var(--t-fast) var(--ease);
+  }
+  .state-row:hover { background: var(--surface-soft); }
+  .state-name { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  .state-bar { height: 8px; background: var(--surface-sunk); border-radius: 4px; overflow: hidden; }
+  .state-fill { height: 100%; background: linear-gradient(90deg, var(--brand), var(--brand-deep)); border-radius: 4px; }
+  .state-count { text-align: right; font-size: 12px; font-weight: 700; }
+  .btn.full { display: block; text-align: center; }
+
+  .feed { display: flex; flex-direction: column; gap: 2px; max-height: 540px; overflow-y: auto; }
+  .feed-row {
+    display: grid;
+    grid-template-columns: 100px 60px 1fr 100px;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px;
+    border-radius: var(--r-sm);
     font-size: 13px;
-    color: var(--ink);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    transition: background var(--t-fast) var(--ease);
   }
-  .hire-meta {
-    font-size: 11px;
-    color: var(--ink-3);
-    margin-top: 2px;
-    font-weight: 500;
+  .feed-row:hover { background: var(--surface-soft); }
+  .feed-date { font-size: 11px; color: var(--ink-3); }
+  .feed-stage {
+    font-size: 10.5px; font-weight: 700;
+    padding: 3px 8px;
+    border-radius: 4px;
+    background: var(--brand-soft);
+    color: var(--brand-deep);
+    text-align: center;
   }
-  .hire-role {
-    font-family: var(--font-mono);
-    font-size: 10.5px;
-    background: var(--ink);
-    color: var(--brand-soft);
-    padding: 1px 7px;
-    border-radius: 99px;
-    margin-left: 2px;
+  .feed-name { font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  .src-list { display: flex; flex-direction: column; gap: 6px; }
+  .src-row {
+    display: grid;
+    grid-template-columns: 130px 1fr 140px;
+    align-items: center;
+    gap: 10px;
+    padding: 6px 8px;
   }
+  .src-name { font-size: 12px; font-weight: 600; color: var(--ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .src-bar { height: 8px; background: var(--surface-sunk); border-radius: 4px; overflow: hidden; }
+  .src-fill { height: 100%; background: linear-gradient(90deg, var(--mauve), var(--mauve-deep)); }
+  .src-meta { text-align: right; font-size: 11px; color: var(--ink-2); font-weight: 600; }
+  .src-meta .ok { color: var(--ok); }
 </style>
